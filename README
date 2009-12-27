@@ -1,0 +1,59 @@
+This is a mirror of http://www.vim.org/scripts/script.php?script_id=2905
+
+Note:
+There is also  http://packages.debian.org/sid/vim-addon-manager
+which servers a similar purpose but is Debian specific.
+I chose the same name by accident.
+
+usage example:
+
+set runtimepath+=~/path-to/vim-plugin-manager
+call scriptmanager#Activate(["vim-haxe","The_NERD_tree","vim-latex"])
+
+On startup you'll be asked for confirmation that vim may install the plugin for you.
+
+How to quickly install a plugin and see whether it does what you want?
+:ActivateAddons <c-d>vim-latex
+:UninstallNotLoadedAddons vim-latex
+
+This script should be kept as simple as possible.
+
+It's main task is to fetch Vim plugins putting each into its own directory.
+Those directories are added to runtimepath for you.
+A plugin can depend on other Vim plugins. Those dependencies are fetched as well.
+
+Scripts are updated by running git pull, svn up etc.
+
+I recommend installing this plugin using
+git clone git://github.com/MarcWeber/vim-addon-manager.git
+(project page): http://github.com/MarcWeber/vim-addon-manager
+
+so that it's easier for you keeping it up to date.
+
+Note: I wrote this plugin to make your and my life easier.
+Help my improving it by sending feedback!
+
+Credits to Tim Pope who sent first patches!
+
+Note: I setup a cron job which updates the 
+vim-plugin-manager-known-repositories once a day automatically.
+Enjoy!
+
+similar work:
+=======================
+This script servers a similar purpose:
+http://github.com/c9s/Vimana
+
+vim-addon-manager differs:
+* it installs each plugin into it's own directory.
+   (I'm sure it's easy to patch Vimana to do the same)
+* You can activate / install plugins at runtime as needed using the
+    ActivateAddons command
+   This is nice because plugins can have optional dependencies which
+   are loaded when required only !
+* cause it's written in VimL you only need these dependencies:
+  - curl
+  - git   (recommended)
+  - svn (for vim-latex)
+
+Try both tools. Use whatever serves you best!
