@@ -1,7 +1,7 @@
 " see README
 
 fun! scriptmanager#DefineAndBind(local,global,default)
-  return 'if !exists('.string(a:global).') | let g:vim_script_manager = '.a:default.' | endif | let '.a:local.' = '.a:global
+  return 'if !exists('.string(a:global).') | let '.a:global.' = '.a:default.' | endif | let '.a:local.' = '.a:global
 endf
 exec scriptmanager#DefineAndBind('s:c','g:vim_script_manager','{}')
 
@@ -23,19 +23,23 @@ fun! scriptmanager#ReadPluginInfo(path)
  return eval(join(readfile(a:path),""))
 endf
 
-fun! scriptmanager#ShellEscape(a)
-  return shellescape(a:a, ' \')
-endf
-
 fun! scriptmanager#Checkout(targetDir, repository)
   if a:repository['type'] == 'git'
     let parent = fnamemodify(a:targetDir,':h')
-    exec '!cd '.scriptmanager#ShellEscape(parent).'; git clone 'scriptmanager#ShellEscape(a:repository['url'])
+    exec '!cd '.shellescape(parent).'; git clone '.shellescape(a:repository['url']).' 'shellescape(a:targetDir)
     if !isdirectory(a:targetDir)
       throw "failed checking out ".a:targetDir." \n".str
     endif
+  " can $VIMRUNTIME/autoload/getscript.vim be reused ? don't think so.. one
+  " big function
+  elseif has_key(a:repository, 'archive_name') && a:repository['archive_name'] =~ '.zip$'
+    call mkdir(a:targetDir)
+    let aname = shellescape(a:repository['archive_name'])
+    exec '!cd '.shellescape(a:targetDir).' &&'
+       \ .'curl -o '.aname.' '.shellescape(a:repository['url']).' &&'
+       \ .'unzip '.aname
   else
-    throw "don't know how to checkout 
+    throw "don't know how to checkout source location: ".string(a:repository)
   endif
 endf
 
@@ -56,19 +60,31 @@ fun! scriptmanager#Install(toBeInstalledList, ...)
       continue
     endif
 
-    let repository = get(s:c['plugin_sources'], name, get(opts, name,0))
     " ask user for to confirm installation unless he set auto_install
     if s:c['auto_install'] || get(opts,'auto_install',0) || input('install plugin '.name.' ? [y/n]:','') == 'y'
+
+      let known = 'vim-plugin-manager-known-repositories'
+      if 0 == get(s:c['activated_plugins'], known, 0) && name != known && input('activate plugin '.known.' to get more plugin sources ? [y/n]:','') == 'y'
+	call scriptmanager#Activate([known])
+	" this should be done by Activate!
+	exec 'source '.scriptmanager#PluginDirByName(known).'/plugin/vim-plugin-manager-known-repositories.vim'
+      endif
+
+      let repository = get(s:c['plugin_sources'], name, get(opts, name,0))
+
       if type(repository) == type(0) && repository == 0
         throw "no repository location info known for plugin ".name
       endif
       let pluginDir = scriptmanager#PluginDirByName(name)
       call scriptmanager#Checkout(pluginDir, repository)
       " install dependencies
-      
-      let infoFile = pluginDir.'/'.name.'/plugin-info.txt'
-      let info = scriptmanager#ReadPluginInfo(infoFile)
-      let dependencies = get(info,'dependencies', [])
+     
+      let infoFile = pluginDir.'/plugin-info.txt'
+      let info = filereadable(infoFile)
+        \ ? scriptmanager#ReadPluginInfo(infoFile)
+        \ : {}
+
+      let dependencies = get(info,'dependencies', {})
 
       " install dependencies merging opts with given repository sources
       " sources given in opts will win
@@ -83,7 +99,7 @@ endf
 "   'auto_install': when 1 overrides global setting, so you can autoinstall
 "   trusted repositories only
 " }
-fun! scriptmanager#Activate(list_of_names, ...)
+fun! scriptmanager#ActivateRecursively(list_of_names, ...)
   let opts = a:0 == 0 ? {} : a:1
 
   for name in a:list_of_names
@@ -91,12 +107,14 @@ fun! scriptmanager#Activate(list_of_names, ...)
       " break circular dependencies..
       let s:c['activated_plugins'][name] = 0
 
-      let infoFile = s:c['plugin_root_dir'].'/'.name.'/plugin-info.txt'
+      let infoFile = scriptmanager#PluginDirByName(name).'/plugin-info.txt'
       if !filereadable(infoFile)
         call scriptmanager#Install([name], opts)
       endif
-      let info = scriptmanager#ReadPluginInfo(infoFile)
-      let dependencies = get(info,'dependencies', [])
+      let info = filereadable(infoFile)
+        \ ? scriptmanager#ReadPluginInfo(infoFile)
+        \ : {}
+      let dependencies = get(info,'dependencies', {})
 
       " activate dependencies merging opts with given repository sources
       " sources given in opts will win
@@ -105,6 +123,55 @@ fun! scriptmanager#Activate(list_of_names, ...)
     endif
     " source plugin/* files ?
     exec "set runtimepath+=".s:c['plugin_root_dir'].'/'.name
-    let s:c['activated_plugins'][name] = 1
+
+    if has_key(s:c, 'started_up')
+      call scriptmanager#GlobThenSource(scriptmanager#PluginDirByName(name).'/plugin/**/*.vim')
+    endif
+
+      let s:c['activated_plugins'][name] = 1
+  endfor
+endf
+
+" see also ActivateRecursively
+" Activate activates the plugins and their dependencies recursively.
+" I sources both: plugin/*.vim and after/plugin/*.vim files when called after
+" .vimrc has been sourced which happens when you activate plugins manually.
+fun! scriptmanager#Activate(...)
+  let active = copy(s:c['activated_plugins'])
+  call call('scriptmanager#ActivateRecursively', a:000)
+
+  if has_key(s:c, 'started_up')
+    " now source after/plugin/**/*.vim files explicitely. Vim doesn't do it (hack!)
+    for k in keys(s:c['activated_plugins'])
+      if !has_key(active, k)
+        call scriptmanager#GlobThenSource(scriptmanager#PluginDirByName(k).'/after/plugin/**/*.vim')
+      endif
+    endfor
+  endif
+endfun
+
+fun! scriptmanager#Update()
+  throw "to be implemented"
+endf
+
+fun! scriptmanager#GlobThenSource(glob)
+  for file in split(glob(a:glob),"\n")
+    exec 'source '.file
+  endfor
+endf
+
+augroup VIM_PLUGIN_MANAGER
+  autocmd VimEnter * call  scriptmanager#Hack()
+augroup end
+
+" hack: Vim sources plugin files after sourcing .vimrc
+"       Vim dosen't source the after/plugin/*.vim files in other runtime
+"       paths. So do this *after* plugin/* files have been sourced
+fun! scriptmanager#Hack()
+  let s:c['started_up'] = 1
+
+  " now source after/plugin/**/*.vim files explicitely. Vim doesn't do it (hack!)
+  for p in keys(s:c['activated_plugins'])
+      call scriptmanager#GlobThenSource(scriptmanager#PluginDirByName(p).'/after/plugin/**/*.vim')
   endfor
 endf
