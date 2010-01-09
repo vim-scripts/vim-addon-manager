@@ -1,4 +1,4 @@
-*vim-plugin-manager.txt*
+*vim-addon-manager.txt*
 Idea: let users install vim plugins with a minimum of work.
 
 ------------------------------------------------------------------------------
@@ -6,42 +6,56 @@ a plugin ~
 
 A plugin is directory NAME containing vim runtimefiles (-> :h vimruntime)
 Additionally it contains a file:
-  NAME/plugin-info.txt
+  NAME/NAME-info.txt
 
 ------------------------------------------------------------------------------
-NAME/plugin-info.txt ~
+NAME/NAME-info.txt ~
 is read by scriptmanager#ReadPluginInfo
 {
-'name' : NAME,
-'version' : "2.0",
-'author' : "surname lastname <email>",
-'maintainer' : "surname lastname <email>,
-'repository' : REPO,
-'dependencies' : { 'name' : REPO }
-'description': ''
+"name" : NAME,
+"version" : "2.0",
+"author" : "surname lastname <email>",
+"maintainer" : "surname lastname <email>,
+"repository" : REPO,
+"dependencies" : { "name" : REPO }
+"description": ""
 }
 
 where REPO =
-  { 'type' : 'git', 'url' : 'git://' ... }
+  { "type" : "git", "url" : "git://" ... }
   or 
-  { 'type' : 'svn', 'url' : 'git://' ... }
+  { "type" : "svn", "url" : "git://" ... }
   or 
   ..
 
+It should be a valid JSON dict and readable by Vim. Thus use " instead of '
+
+You may want to install http://www.vim.org/scripts/script.php?script_id=1945
+to get syntax highligting (TODO)
 
 ------------------------------------------------------------------------------
 INSTALLING THIS VIM PLUGIN ~
 
+put this plugin into ~/vim-plugins/vim-addon-manager
+
+  Linux steps:
+  mkdir ~/vim-plugins; cd ~/vim-plugins
+  git clone git://github.com/MarcWeber/vim-addon-manager.git
+
+
 Add to your .vimrc:
 
-  set vimruntimepath+=PATH_TO_vim-plugin-manager
-  call scriptmanager#Activate(["name1","name2"])
+  set vimruntimepath+=PATH_TO_vim-addon-manager
+  call scriptmanager#Activate(['vim-addon-manager',"name1","name2"])
 
-This is enough to install and activate the plugins.
+This is enough to install and activate the plugins named name1 name2.
 activating means adding the plugin path to runtimepath.
 
 Note: care is taken that plugin/*.vim and after/plugin/*.vim scripts are
 sourced in this order no matter when you call Activate()
+
+Adding "vim-addon-manager" isn't required.
+However this way it will be updated when running UpdateAddons as well
 
 ------------------------------------------------------------------------------
 howto install & activate a plugin ~
@@ -55,7 +69,7 @@ INSTALL:
 
     call scriptmanager#Install("name")
     or
-    call scriptmanager#Install([PATH_OR_URL/plugin-info.txt])
+    call scriptmanager#Install([PATH_OR_URL/NAME-info.txt])
 
     " this will download the repository and its dependencies and put them into
     " the directory containing vim-script-manager
@@ -68,10 +82,20 @@ ACTIVATE:
 
   " dependencies will be activated automatically
 
+------------------------------------------------------------------------------
+testing and uninstalling addons
+
+
+You can install using >
+  ActivateAddons <c-d>vim-latex
+<
+
+You can uninstall addons this way: >
+  :UninstallNotLoadedAddons vim-latex
 
 ------------------------------------------------------------------------------
 Example install list of all known repositories ~
-call scriptmanager#Install(["vim-plugin-manager-known-repositories"])
+call scriptmanager#Install(["vim-addon-manager-known-repositories"])
 
 ------------------------------------------------------------------------------
 historical notes ~
