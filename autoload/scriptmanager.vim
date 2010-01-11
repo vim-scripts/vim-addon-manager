@@ -1,5 +1,5 @@
 " see README
-
+st 
 " don't need a plugin. If you want to use this plugin you call Activate once
 " anyway
 augroup SCRIPT_MANAGER
@@ -7,7 +7,7 @@ augroup SCRIPT_MANAGER
     \ setlocal ft=addon-info
     \ | setlocal syntax=json
     \ | syn match Error "^\s*'"
-  autocmd BufWritePost *-addon-info.txt call scriptmanager#ReadPluginInfo(expand('%'))
+  autocmd BufWritePost *-addon-info.txt call scriptmanager#ReadAddonInfo(expand('%'))
 augroup end
 
 fun! scriptmanager#DefineAndBind(local,global,default)
@@ -19,9 +19,16 @@ let s:c['config'] = get(s:c,'config',expand('$HOME').'/.vim-script-manager')
 let s:c['auto_install'] = get(s:c,'auto_install', 0)
 " repository locations:
 let s:c['plugin_sources'] = get(s:c,'plugin_sources', {})
+" if a plugin has an item here the dict value contents will be written as plugin info file
+let s:c['missing_addon_infos'] = get(s:c,'missing_addon_infos', {})
+" addon_infos cache, {} if file dosen't exist
+let s:c['addon_infos'] = get(s:c,'addon_infos', {})
 let s:c['activated_plugins'] = {}
 let s:c['plugin_root_dir'] = fnamemodify(expand('<sfile>'),':h:h:h')
 let s:c['known'] = get(s:c,'known','vim-addon-manager-known-repositories')
+
+" there should be some kind of abstraction This will do it for now
+let s:c['cmd_sep'] = &shell =~ 'cmd.exe' ? '&' : ';'
 
 " additional plugin sources should go into your .vimrc or into the repository
 " called "vim-addon-manager-known-repositories" referenced here:
@@ -34,7 +41,7 @@ endf
 
 " use join so that you can break the dict into multiple lines. This makes
 " reading it much easier
-fun! scriptmanager#ReadPluginInfo(path)
+fun! scriptmanager#ReadAddonInfo(path)
   if a:path =~ 'tlib/plugin-info.txt$'
     " I'll ask Tom Link to change this when vim-addon-manager is more stable
     return eval(join(readfile(a:path),""))
@@ -55,24 +62,51 @@ endf
 fun! scriptmanager#Checkout(targetDir, repository)
   if a:repository['type'] == 'git'
     let parent = fnamemodify(a:targetDir,':h')
-    exec '!cd '.shellescape(parent).'; git clone '.shellescape(a:repository['url']).' 'shellescape(a:targetDir)
+    exec '!git clone '.shellescape(a:repository['url']).' '.shellescape(a:targetDir)
     if !isdirectory(a:targetDir)
       throw "failed checking out ".a:targetDir." \n"
     endif
   elseif a:repository['type'] == 'svn'
     let parent = fnamemodify(a:targetDir,':h')
-    exec '!cd '.shellescape(parent).'; svn checkout '.shellescape(a:repository['url']).' '.shellescape(a:targetDir)
+    exec '!svn checkout '.shellescape(a:repository['url']).' '.shellescape(a:targetDir)
     if !isdirectory(a:targetDir)
       throw "failed checking out ".a:targetDir." \n".str
     endif
-  " can $VIMRUNTIME/autoload/getscript.vim be reused ? don't think so.. one
-  " big function
+
+  " .vim file and type syntax?
+  elseif has_key(a:repository, 'archive_name')
+      \ && get(a:repository,'script-type','') == 'syntax'
+      \ && a:repository['archive_name'] =~ '\.vim$'
+    call mkdir(a:targetDir.'/syntax','p')
+    let aname = shellescape(a:repository['archive_name'])
+    exec '!cd '.shellescape(a:targetDir).'/syntax &&'
+       \ .'curl -o '.aname.' '.shellescape(a:repository['url'])
+
+  " .vim file? -> plugin
+  elseif has_key(a:repository, 'archive_name')
+      \ && a:repository['archive_name'] =~ '\.vim$'
+    call mkdir(a:targetDir.'/plugin','p')
+    let aname = shellescape(a:repository['archive_name'])
+    exec '!cd '.shellescape(a:targetDir).'/plugin &&'
+       \ .'curl -o '.aname.' '.shellescape(a:repository['url'])
+
+  " .tar.gz
+  elseif has_key(a:repository, 'archive_name') && a:repository['archive_name'] =~ '\.tar.gz$'
+    call mkdir(a:targetDir)
+    let aname = shellescape(a:repository['archive_name'])
+    exec '!cd '.shellescape(a:targetDir).' &&'
+       \ .'curl -o '.aname.' '.shellescape(a:repository['url']).' &&'
+       \ .'tar --strip-components=1 -xzf '.aname
+
+  " .zip
   elseif has_key(a:repository, 'archive_name') && a:repository['archive_name'] =~ '\.zip$'
     call mkdir(a:targetDir)
     let aname = shellescape(a:repository['archive_name'])
     exec '!cd '.shellescape(a:targetDir).' &&'
        \ .'curl -o '.aname.' '.shellescape(a:repository['url']).' &&'
        \ .'unzip '.aname
+
+  " .vba reuse vimball#Vimball() function
   elseif has_key(a:repository, 'archive_name') && a:repository['archive_name'] =~ '\.vba\%(\.gz\)\?$'
     call mkdir(a:targetDir)
     let a = a:repository['archive_name']
@@ -93,6 +127,10 @@ endf
 
 fun! scriptmanager#PluginDirByName(name)
   return s:c['plugin_root_dir'].'/'.a:name
+endf
+fun! scriptmanager#PluginRuntimePath(name)
+  let info = scriptmanager#AddonInfo(a:name)
+  return s:c['plugin_root_dir'].'/'.a:name.(has_key(info, 'runtimepath') ? '/'.info['runtimepath'] : '')
 endf
 
 " doesn't check dependencies!
@@ -119,6 +157,20 @@ fun! scriptmanager#UninstallAddons(list)
   endif
 endf
 
+fun! scriptmanager#HelpTags(name)
+  let d=scriptmanager#PluginDirByName(a:name).'/doc'
+  if isdirectory(d) | exec 'helptags '.d | endif
+endf
+
+" {} if file dosen't exist
+fun! scriptmanager#AddonInfo(name)
+  let infoFile = scriptmanager#AddonInfoFile(a:name)
+  let s:c['addon_infos'][a:name] = filereadable(infoFile)
+    \ ? scriptmanager#ReadAddonInfo(infoFile)
+    \ : {}
+ return get(s:c['addon_infos'],a:name, {})
+endf
+
 " opts: same as Activate
 fun! scriptmanager#Install(toBeInstalledList, ...)
   let opts = a:0 == 0 ? {} : a:1
@@ -138,13 +190,17 @@ fun! scriptmanager#Install(toBeInstalledList, ...)
         throw "no repository location info known for plugin ".name
       endif
       let pluginDir = scriptmanager#PluginDirByName(name)
+      let infoFile = scriptmanager#AddonInfoFile(name)
       call scriptmanager#Checkout(pluginDir, repository)
+
+      if !filereadable(infoFile) && has_key(s:c['missing_addon_infos'], name)
+        call writefile([s:c['missing_addon_infos'][name]], infoFile)
+      endif
+
       " install dependencies
      
-      let infoFile = scriptmanager#PluginInfo(name)
-      let info = filereadable(infoFile)
-        \ ? scriptmanager#ReadPluginInfo(infoFile)
-        \ : {}
+      let infoFile = scriptmanager#AddonInfoFile(name)
+      let info = scriptmanager#AddonInfo(name)
 
       let dependencies = get(info,'dependencies', {})
 
@@ -153,6 +209,7 @@ fun! scriptmanager#Install(toBeInstalledList, ...)
       call scriptmanager#Install(keys(dependencies),
         \ extend(copy(opts), { 'plugin_sources' : extend(copy(dependencies), get(opts, 'plugin_sources',{}))}))
     endif
+    call scriptmanager#HelpTags(name)
   endfor
 endf
 
@@ -169,13 +226,11 @@ fun! scriptmanager#ActivateRecursively(list_of_names, ...)
       " break circular dependencies..
       let s:c['activated_plugins'][name] = 0
 
-      let infoFile = scriptmanager#PluginInfo(name)
+      let infoFile = scriptmanager#AddonInfoFile(name)
       if !filereadable(infoFile)
         call scriptmanager#Install([name], opts)
       endif
-      let info = filereadable(infoFile)
-        \ ? scriptmanager#ReadPluginInfo(infoFile)
-        \ : {}
+      let info = scriptmanager#AddonInfo(name)
       let dependencies = get(info,'dependencies', {})
 
       " activate dependencies merging opts with given repository sources
@@ -184,10 +239,11 @@ fun! scriptmanager#ActivateRecursively(list_of_names, ...)
         \ extend(copy(opts), { 'plugin_sources' : extend(copy(dependencies), get(opts, 'plugin_sources',{}))}))
     endif
     " source plugin/* files ?
-    exec "set runtimepath+=".s:c['plugin_root_dir'].'/'.name
+    let rtp = scriptmanager#PluginRuntimePath(name)
+    exec "set runtimepath+=".rtp
 
     if has_key(s:c, 'started_up')
-      call scriptmanager#GlobThenSource(scriptmanager#PluginDirByName(name).'/plugin/**/*.vim')
+      call scriptmanager#GlobThenSource(rtp.'/plugin/**/*.vim')
     endif
 
       let s:c['activated_plugins'][name] = 1
@@ -206,15 +262,12 @@ fun! scriptmanager#Activate(...)
     " now source after/plugin/**/*.vim files explicitely. Vim doesn't do it (hack!)
     for k in keys(s:c['activated_plugins'])
       if !has_key(active, k)
-        call scriptmanager#GlobThenSource(scriptmanager#PluginDirByName(k).'/after/plugin/**/*.vim')
+        let rtp = scriptmanager#PluginRuntimePath(k)
+        call scriptmanager#GlobThenSource(rtp.'/plugin/**/*.vim')
       endif
     endfor
   endif
 endfun
-
-fun! scriptmanager#Update()
-  throw "to be implemented"
-endf
 
 fun! scriptmanager#GlobThenSource(glob)
   for file in split(glob(a:glob),"\n")
@@ -238,7 +291,7 @@ fun! scriptmanager#Hack()
   endfor
 endf
 
-fun! scriptmanager#PluginInfo(name)
+fun! scriptmanager#AddonInfoFile(name)
   " this name is deprecated
   let f = scriptmanager#PluginDirByName(a:name).'/plugin-info.txt'
   if filereadable(f)
@@ -251,10 +304,10 @@ endf
 fun! scriptmanager#UpdateAddon(name)
   let direcotry = scriptmanager#PluginDirByName(a:name)
   if isdirectory(direcotry.'/.git')
-    exec '!cd '.shellescape(direcotry).'; git pull'
+    exec 'git pull --git-dir='.shellescape(direcotry)
     return !v:shell_error
   elseif isdirectory(direcotry.'/.svn')
-    exec '!cd '.shellescape(direcotry).'; svn update'
+    exec '!cd '.shellescape(direcotry).s:c['cmd_sep'].' svn update'
     return !v:shell_error
   else
     echoe "updating plugin ".a:name." not implemented yet"
@@ -270,7 +323,11 @@ fun! scriptmanager#Update(list)
   endif
   let failed = []
   for p in list
-    if !scriptmanager#UpdateAddon(p) | call add(failed,p) | endif
+    if scriptmanager#UpdateAddon(p)
+      call scriptmanager#HelpTags(p)
+    else
+      call add(failed,p)
+    endif
   endfor
   if !empty(failed)
     echoe "failed updating plugins: ".string(failed)
