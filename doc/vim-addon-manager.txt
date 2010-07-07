@@ -1,5 +1,8 @@
 *vim-addon-manager.txt*
-Idea: let users install vim plugins with a minimum of work.
+Idea: let users install and uninstall vim plugins with a minimum of work:
+* each plugin is put into its own directory
+* dependencies are fetched automatically
+
 
 ------------------------------------------------------------------------------
 a plugin ~
@@ -75,6 +78,7 @@ INSTALL:
 
     " this will download the repository and its dependencies and put them into
     " the directory containing vim-script-manager
+    " note: if its a file it must contain a '/'. Eg use ./current-dir-info.txt
 
 
 ACTIVATE:
@@ -85,11 +89,26 @@ ACTIVATE:
   " dependencies will be activated automatically
 
 ------------------------------------------------------------------------------
+DEPRECATION ~
+
+You can depreceate a package by defining the depreceate key in the repository
+dict. When installing such a addon user will be prompted for confirmation.
+The idea is to tell people to use addons which supersedes the ones they're
+trying to install
+
+------------------------------------------------------------------------------
 BUGS ~
 - this help file must be tidied up
 - helptags isn't run for you (yet)
-- You have to install addditional tools such as curl, git and svn
-- not very well tested on Windows. However it should be easy to fix everything
+
+There is an older project which has the same name:
+http://packages.debian.org/sid/vim-addon-manager
+Tom Link told me about it. What shall I do?
+I just leave this comment here for now
+
+godlygeek suggested renaming this plugin to "vim-runtime-manager".
+So this may happen in the near future. However I also asked the Debian package
+maintainer Jamessan. He was fine with this plugin having the same name.
 
 ------------------------------------------------------------------------------
 security note ~
@@ -113,7 +132,39 @@ Example install list of all known repositories ~
 call scriptmanager#Install(["vim-addon-manager-known-repositories"])
 
 ------------------------------------------------------------------------------
+How to add your own repository locations? ~
+Ask me to add it to vim-addon-manager-known-repositories or do what that
+plugin is doing: Add your own dicts to: >
+  g:vim_script_manager['plugin_sources']['your-plugin-name'] = { ... }
+<
+in your .vimrc or somewhere eles
+------------------------------------------------------------------------------
 historical notes ~
 This is a KISS reimplementation of http://github.com/MarcWeber/theonevimlib
 
+------------------------------------------------------------------------------
+related work: ~
+Send me a mail so that I can add your project
+  http://github.com/c9s/Vimana
+  http://snk.tuxfamily.org/log/vim-script-management-system.html
+
+  Are they better? Don't know. Unless they support specyfing dependencies I'm
+  not considering switching so its up to you to judge.
+
+  If I feel something else fits my needs better I'll deprecate this package as
+  I did for tovl.
+
+
+------------------------------------------------------------------------------
+TODO ~
+reuse this code?
+http://www.vim.org/scripts/script.php?script_id=3061
+
+------------------------------------------------------------------------------
+contributors ~
+(incomplete list):
+ZyX (Nikolay Pavlov, ZyX-I on github)
+
+
 vim:tw=78:fo=tcq2:isk=!-~,^*,^\|,^\":ts=8:ft=help:norl:
+
