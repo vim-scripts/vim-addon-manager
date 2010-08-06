@@ -2,6 +2,9 @@
 
 exec scriptmanager#DefineAndBind('s:c','g:vim_script_manager','{}')
 
+" let users override curl command. Reuse netrw setting
+let s:curl = exists('g:netrw_http_cmd') ? g:netrw_http_cmd : 'curl -o'
+
 " Install let's you install plugins by passing the url of a addon-info file
 " This preprocessor replaces the urls by the plugin-names putting the
 " repository information into the global dict
@@ -14,7 +17,7 @@ fun! scriptmanager2#ReplaceAndFetchUrls(list)
     " assume n is either an url or a path
     if n =~ '^http://' && 'y' == input('Fetch plugin info from url '.n.' [y/n]')
       let t = tempfile()
-      exec '!curl '.t.' > '.s:shellescape(t)
+      exec '!'.s:curl.' '.t.' > '.s:shellescape(t)
     elseif n =~  '[/\\]' && filereadable(n)
       let t = n
     endif
@@ -87,19 +90,7 @@ endf
 
 fun! scriptmanager2#UpdateAddon(name)
   let directory = scriptmanager#PluginDirByName(a:name)
-  if isdirectory(directory.'/.git')
-    call s:exec_in_dir([{'d': directory, 'c': 'git pull'}])
-    return !v:shell_error
-  elseif isdirectory(directory.'/.svn')
-    call s:exec_in_dir([{'d': directory, 'c': 'svn update'}])
-    return !v:shell_error
-  elseif isdirectory(directory.'/.hg')
-    call s:exec_in_dir([{'d': directory, 'c': 'hg pull'}])
-    return !v:shell_error
-  else
-    echoe "Updating plugin ".a:name." not implemented yet."
-    return 0
-  endif
+  return vcs_checkouts#Update(directory)
 endf
 
 fun! scriptmanager2#Update(list)
@@ -192,24 +183,8 @@ endf
 
 fun! scriptmanager2#Checkout(targetDir, repository)
   let addVersionFile = 'call writefile([get(a:repository,"version","?")], a:targetDir."/version")'
-  if a:repository['type'] == 'git'
-    let parent = fnamemodify(a:targetDir,':h')
-    exec '!git clone '.s:shellescape(a:repository['url']).' '.s:shellescape(a:targetDir)
-    if !isdirectory(a:targetDir)
-      throw "Failed checking out ".a:targetDir."!"
-    endif
-  elseif a:repository['type'] == 'hg'
-    let parent = fnamemodify(a:targetDir,':h')
-    exec '!hg clone '.s:shellescape(a:repository['url']).' '.s:shellescape(a:targetDir)
-    if !isdirectory(a:targetDir)
-      throw "Failed checking out ".a:targetDir."!"
-    endif
-  elseif a:repository['type'] == 'svn'
-    let parent = fnamemodify(a:targetDir,':h')
-    call s:exec_in_dir([{'d': parent, 'c': 'svn checkout '.s:shellescape(a:repository['url']}]).' '.s:shellescape(a:targetDir))
-    if !isdirectory(a:targetDir)
-      throw "Failed checking out ".a:targetDir."!"
-    endif
+  if a:repository['type'] =~ 'git\|hg\|svn'
+    call vcs_checkouts#Checkout(a:targetDir, a:repository)
 
   " .vim file and type syntax?
   elseif has_key(a:repository, 'archive_name')
@@ -222,7 +197,7 @@ fun! scriptmanager2#Checkout(targetDir, repository)
     endif
     call mkdir(a:targetDir.'/'.target,'p')
     let aname = s:shellescape(a:repository['archive_name'])
-    call s:exec_in_dir([{'d':  a:targetDir.'/'.target, 'c': 'curl -o '.aname.' '.s:shellescape(a:repository['url']}]))
+    call s:exec_in_dir([{'d':  a:targetDir.'/'.target, 'c': s:curl.' '.aname.' '.s:shellescape(a:repository['url'])}])
     exec addVersionFile
     call scriptmanager2#Copy(a:targetDir, a:targetDir.'.backup')
 
@@ -231,7 +206,7 @@ fun! scriptmanager2#Checkout(targetDir, repository)
     call mkdir(a:targetDir)
     let aname = s:shellescape(a:repository['archive_name'])
     let s = get(a:repository,'strip-components',1)
-    call s:exec_in_dir([{'d':  a:targetDir, 'c': 'curl -o '.aname.' '.s:shellescape(a:repository['url']}
+    call s:exec_in_dir([{'d':  a:targetDir, 'c': s:curl.' '.aname.' '.s:shellescape(a:repository['url'])}
           \ , {'c': 'tar --strip-components='.s.' -xzf '.aname}])
     exec addVersionFile
     call scriptmanager2#Copy(a:targetDir, a:targetDir.'.backup')
@@ -241,7 +216,7 @@ fun! scriptmanager2#Checkout(targetDir, repository)
   elseif has_key(a:repository, 'archive_name') && a:repository['archive_name'] =~ '\.tar$'
     call mkdir(a:targetDir)
     let aname = s:shellescape(a:repository['archive_name'])
-    call s:exec_in_dir([{'d':  a:targetDir, 'c': 'curl -o '.aname.' '.s:shellescape(a:repository['url']}
+    call s:exec_in_dir([{'d':  a:targetDir, 'c': s:curl.' '.aname.' '.s:shellescape(a:repository['url'])}
           \ , {'c': 'tar --strip-components='.s.' -xzf '.aname}])
     exec addVersionFile
     call scriptmanager2#Copy(a:targetDir, a:targetDir.'.backup')
@@ -250,7 +225,7 @@ fun! scriptmanager2#Checkout(targetDir, repository)
   elseif has_key(a:repository, 'archive_name') && a:repository['archive_name'] =~ '\.zip$'
     call mkdir(a:targetDir)
     let aname = s:shellescape(a:repository['archive_name'])
-    call s:exec_in_dir([{'d':  a:targetDir, 'c': 'curl -o '.s:shellescape(a:targetDir).'/'.aname.' '.s:shellescape(a:repository['url'])}
+    call s:exec_in_dir([{'d':  a:targetDir, 'c': s:curl.' '.s:shellescape(a:targetDir).'/'.aname.' '.s:shellescape(a:repository['url'])}
        \ , {'c': 'unzip '.aname } ])
     exec addVersionFile
     call scriptmanager2#Copy(a:targetDir, a:targetDir.'.backup')
@@ -260,10 +235,10 @@ fun! scriptmanager2#Checkout(targetDir, repository)
     call mkdir(a:targetDir)
     let a = a:repository['archive_name']
     let aname = s:shellescape(a)
-    call s:exec_in_dir([{'d':  a:targetDir, 'c': 'curl -o '.aname.' '.s:shellescape(a:repository['url']}]))
+    call s:exec_in_dir([{'d':  a:targetDir, 'c': s:curl.' '.aname.' '.s:shellescape(a:repository['url'])}])
     if a =~ '\.gz'
       " manually unzip .vba.gz as .gz isn't unpacked yet for some reason
-      exec '!gunzip '.a:targetDir.'/'.a
+      exec '!gunzip "'.a:targetDir.'/'.a.'"'
       let a = a[:-4]
     endif
     exec 'sp '.a:targetDir.'/'.a
@@ -281,37 +256,17 @@ endf
 
 " cmds = list of {'d':  dir to run command in, 'c': the command line to be run }
 fun! s:exec_in_dir(cmds)
-  if has('win16') || has('win32') || has('win64')
-    " set different lcd in extra buffer:
-    split
-    let lcd=""
-    for c in a:cmds
-      if has_key(c, "d")
-        " TODO quoting
-        exec "lcd ".c.d
-      endif
-      exec '!'.c.c
-      " break if one of the pased commands failes:
-      if v:shell_error != 0
-        break
-      endif
-    endfor
-    " should lcd withou args be used instead?
-    bw!
-  else
-    " execute command sequences on linux
-    let cmds_str = []
-    for c in a:cmds
-      call add(cmds_str, (has_key(c,"d") ? "cd ".s:shellescape(c.d)." && " : "" ). c.c)
-    endfor
-    exec '!'.join(cmds_str," && ")
-  endif
+  call vcs_checkouts#ExecIndir(a:cmds)
 endf
 
 " is there a library providing an OS abstraction? This breaks Winndows
 " xcopy or copy should be used there..
 fun! scriptmanager2#Copy(f,t)
-  exec '!cp -r '.s:shellescape(a:f).' '.s:shellescape(a:t)
+  if has('win16') || has('win32') || has('win64')
+    exec '!xcopy /e /i '.s:shellescape(a:f).' '.s:shellescape(a:t)
+  else
+    exec '!cp -r '.s:shellescape(a:f).' '.s:shellescape(a:t)
+  endif
 endfun
 
 
@@ -325,3 +280,139 @@ fun! scriptmanager2#LoadKnownRepos(...)
   endif
 endf
 
+
+fun! scriptmanager2#MergeTarget()
+  return split(&runtimepath,",")[0].'/after/plugin/vim-addon-manager-merged.vim'
+endf
+
+" if you machine is under IO load starting up Vim can take some time
+" This function tries to optimize this by reading all the plugin/*.vim
+" files joining them to one vim file.
+"
+" 1) rename plugin to plugin-merged (so that they are no longer sourced by Vim)
+" 2) read plugin/*.vim_merged files
+" 3) replace clashing s:name vars by uniq names
+" 4) rewrite the guards (everything containing finish)
+" 5) write final merged file to ~/.vim/after/plugin/vim-addon-manager-merged.vim
+"    so that its sourced automatically
+"
+" TODO: take after plugins int account?
+fun! scriptmanager2#MergePluginFiles(plugins, skip_pattern)
+  if !filereadable('/bin/sh')
+    throw "you should be using Linux.. This code is likely to break on other operating systems!"
+  endif
+
+  let target = scriptmanager2#MergeTarget()
+
+  for r in a:plugins
+    if !has_key(s:c['activated_plugins'], r)
+      throw "JoinPluginFiles: all plugins must be activated (which ensures that they have been installed). This plugin is not active: ".r
+    endif
+  endfor
+
+  let runtimepaths = map(copy(a:plugins), 'scriptmanager#PluginRuntimePath(v:val)')
+
+  " 1)
+  for r in runtimepaths
+    if (isdirectory(r.'/plugin'))
+      call s:exec_in_dir([{'c':'mv '.s:shellescape(r.'/plugin').' '.s:shellescape(r.'/plugin-merged')}])
+    endif
+  endfor
+
+  " 2)
+  let file_local_vars = {}
+  let uniq = 1
+  let all_contents = ""
+  for r in runtimepaths
+    for file in split(glob(r.'/plugin-merged/*.vim'),"\n")
+
+      if file =~ a:skip_pattern
+        let all_contents .= "\" ignoring ".file."\n"
+        continue
+      endif
+
+      let names_this_file = {}
+      let contents =join(readfile(file, 'b'),"\n")
+      for l in split("s:abc s:foobar",'\ze\<s:')[1:]
+        let names_this_file[matchstr(l,'^s:\zs[^ [(=)\]]*')] = 1
+      endfor
+      " handle duplicate local vars: 3)
+      for k in keys(names_this_file)
+        if has_key(file_local_vars, k)
+          let new = 'uniq_'.uniq
+          let uniq += 1
+          let file_local_vars[new] = 1
+          let contents = "\" replaced: ".k." by ".new."\n".substitute(contents, 's:'.k,'s:'.new,'g')
+        else
+          let file_local_vars[k] = 1
+        endif
+      endfor
+
+      " find finish which start at the end of a line.
+      " They are often used to separated Vim code from additional info such as
+      " history (eg tlib is using it). Comment remaining lines
+      let lines = split(contents,"\n")
+      let comment = 0
+      for i in range(0,len(lines)-1)
+        if lines[i] =~ '^finish'
+          let comment = 1
+        endif
+        if comment
+          let lines[i] = "\" ".lines[i]
+        endif
+      endfor
+      let contents = join(lines,"\n")
+
+      " guards 4)
+      " find guards replace them by if .. endif blocks
+      let lines = split(contents,"\n")
+      for i in range(2,len(lines)-1)
+        if lines[i] =~ '^\s*finish' && lines[i-1] =~ '^\s*if\s'
+          " found a guard
+          
+          " negate if, remove {{{ if present (I don't care)
+          let lines[i-1] = 'if !('.matchstr(substitute(lines[i-1],'"[^"]*{{{.*','',''),'if\s*\zs.*').')'
+          let j = i+1
+          while j < len(lines) && lines[j] !~ '^\s*endif'
+            let lines[j] = ''
+            let j = j+1
+          endwhile
+          let lines[j] = ''
+          " guards are never longer than 10 lines
+          if j - i > 10
+            throw "something probably has gone wrong while removing guard for file".file." start at line: ".i
+          endif
+          call add(lines,'endif')
+          let contents = join(lines,"\n")
+          break
+        endif
+      endfor
+
+
+      " comment remaining finish lines. This does not catch if .. | finish | endif and such
+      " :-(
+      " adding additional \n because not all scripts have a final \n..
+      let contents = substitute(contents, '\<finish\>','" finish','g')
+      let all_contents .= "\n"
+            \ ."\"merged: ".file."\n"
+            \ .contents
+            \ ."\n"
+            \ ."\"merged: ".file." end\n"
+    endfor
+  endfor
+
+  let d =fnamemodify(target,':h')
+  if !isdirectory(d) | call mkdir(d,'p') | endif
+  call writefile(split(all_contents,"\n"), target)
+
+endf
+
+fun! scriptmanager2#UnmergePluginFiles()
+  let path = fnamemodify(scriptmanager#PluginRuntimePath('vim-addon-manager'),':h')
+  for merged in split(glob(path.'/*/plugin-merged'),"\n")
+            \ +split(glob(path.'/*/*/plugin-merged'),"\n")
+    echo "unmerging ".merged
+    call rename(merged, substitute(merged,'-merged$','',''))
+  endfor
+  call delete(scriptmanager2#MergeTarget())
+endfun

@@ -62,6 +62,8 @@ Note: Both vim-addon-manager and JSON are optional.
       vim-addon-manager: UpdateAddons will update it
       JSON: highlights the addon-info.txt files
 
+See next section to learn what will happen
+
 ------------------------------------------------------------------------------
 howto install & activate a plugin ~
 
@@ -87,6 +89,9 @@ ACTIVATE:
  (before filetype plugin on)
 
   " dependencies will be activated automatically
+
+scriptmanager#Activate will install plugins on startup. Press y<cr> for each
+plugin to be installed once then.
 
 ------------------------------------------------------------------------------
 DEPRECATION ~
@@ -128,6 +133,31 @@ You can uninstall addons this way: >
   :UninstallNotLoadedAddons vim-latex
 
 ------------------------------------------------------------------------------
+speeding startup up on heavy IO load.. (?) - force deactivation of plugin/*.vim files ~
+
+(Well.. feature is in alpha stage)
+
+Maybe you use as many plugins as I do? Starting up Vim can be a nightmare if
+system is under IO load. That's why I wrote this small helper function: >
+  command MergePluginFiles call scriptmanager2#MergePluginFiles(["vim-addon-git","no-match"])
+<
+It will rename all plugin dirs to plugin-merged so that they
+are ignored by Vim. Then it'll merge file contents into this one >
+  ~/.vim/after/plugin/vim-addon-manager-merged.vim
+< file which should cause less IO stress to your system. Thus Vim will startup
+faster. Of course there are some issues the function tries to take care off -
+But this can also break the scritps:
+  - s:foobar file local vars have to be renamed if they are used in more than
+    one plugin file
+  - guards are replaced by if .. endif which might be inneficient.
+    So if you want to disable plugins use the skip pattern like this: >
+    call scriptmanager2#MergePluginFiles(["vim-addon-git","tselectfile\.vim\|tselectbuffer\.vim"])
+< - finish is bad. So its commented (the gurads should be replaced by if ..
+    endif blocks instead - Do you want to implement it?
+
+Caching the addon-info files would be a nice idea, too.
+
+------------------------------------------------------------------------------
 Example install list of all known repositories ~
 call scriptmanager#Install(["vim-addon-manager-known-repositories"])
 
@@ -159,6 +189,21 @@ Send me a mail so that I can add your project
 TODO ~
 reuse this code?
 http://www.vim.org/scripts/script.php?script_id=3061
+
+
+------------------------------------------------------------------------------
+running the test ~
+
+this should be all you have to do:
+sh vim-addon-manager-test.sh
+
+You should see
+1
+1
+1
+
+at the end. Written for Linux only. Code coverage is bad. Its a starting
+point.
 
 ------------------------------------------------------------------------------
 contributors ~
