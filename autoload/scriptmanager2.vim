@@ -1,9 +1,10 @@
 " scriptmanager2 contains code which is used when install plugins only
 
+let s:curl = exists('g:netrw_http_cmd') ? g:netrw_http_cmd : 'curl -o'
 exec scriptmanager#DefineAndBind('s:c','g:vim_script_manager','{}')
 
-" let users override curl command. Reuse netrw setting
-let s:curl = exists('g:netrw_http_cmd') ? g:netrw_http_cmd : 'curl -o'
+
+let s:system_wide = !filewritable(expand('<sfile>'))
 
 " Install let's you install plugins by passing the url of a addon-info file
 " This preprocessor replaces the urls by the plugin-names putting the
@@ -52,7 +53,8 @@ fun! scriptmanager2#Install(toBeInstalledList, ...)
       let repository = get(s:c['plugin_sources'], name, get(opts, name,0))
 
       if type(repository) == type(0) && repository == 0
-        throw "No repository location info known for plugin ".name."!"
+        echoe "No repository location info known for plugin ".name."!"
+        return
       endif
 
       let d = get(repository, 'deprecated', '')
@@ -88,15 +90,54 @@ fun! scriptmanager2#Install(toBeInstalledList, ...)
   endfor
 endf
 
+" this function will be refactored slightly soon by either me or Zyx.
 fun! scriptmanager2#UpdateAddon(name)
-  let directory = scriptmanager#PluginDirByName(a:name)
-  return vcs_checkouts#Update(directory)
+  let pluginDir = scriptmanager#PluginDirByName(a:name)
+  if !vcs_checkouts#Update(pluginDir)
+    " try updating plugin by archive
+    
+    " dose the user have made any changes? :
+    let pluginDir = scriptmanager#PluginDirByName(a:name)
+    let backup = scriptmanager#PluginDirByName(a:name).'.backup'
+    let container = fnamemodify(backup,':h')
+    let diff_file = containing.'/'.a:name.'.diff-orig'
+
+    if executable('diff') && isdirectory(backup)
+      call s:exec_in_dir([{'c':'diff -r '.s:shellescape(r.'/plugin').' '.s:shellescape(r.'/plugin-merged')}])
+    endif
+    
+    if filereadable(pluginDir.'/version')
+      let pluginversion = get(readfile(pluginDir.'/version'), 0, "?")
+      let repository = get(s:c['plugin_sources'], a:name, {})
+      if empty(repository)
+        echoe "Cannot update plugin ".a:name.": no repository locations known."
+        return
+      endif
+      let newpluginversion = get(repository, 'version', '?')
+      if newpluginversion==#'?'
+        echoe "Cannot update plugin ".a:name.": no version information is available."
+      elseif pluginversion==#newpluginversion
+        " Though we are not updating plugin, this is not an error
+        return 1
+      endif
+      if scriptmanager2#Checkout(pluginDir, repository)
+        return
+      endif
+      return 1
+    endif
+    return
+  endif
+  return 1
 endf
 
 fun! scriptmanager2#Update(list)
   let list = a:list
   if empty(list) && input('Update all loaded plugins? [y/n] ','y') == 'y'
     call scriptmanager2#LoadKnownRepos(' so that its updated as well')
+    " include vim-addon-manager in list
+    if !s:system_wide
+      call scriptmanager#Activate(['vim-addon-manager'])
+    endif
     let list = keys(s:c['activated_plugins'])
   endif
   let failed = []
@@ -181,74 +222,56 @@ fun! scriptmanager2#HelpTags(name)
   if isdirectory(d) | exec 'helptags '.d | endif
 endf
 
-fun! scriptmanager2#Checkout(targetDir, repository)
-  let addVersionFile = 'call writefile([get(a:repository,"version","?")], a:targetDir."/version")'
+" " if --strip-components fails finish this workaround:
+" " emulate it in VimL
+" fun! s:StripComponents(targetDir, num)
+"   let dostrip = 1*a:num
+"   while x in range(1, 1*a:num)
+"     let dirs = split(glob(a:targetDir.'/*'),"\n")
+"     if len(dirs) > 1
+"       throw "can't strip, multiple dirs found!"
+"     endif
+"     for f in split(glob(dirs[0].'/*'),"\n")
+"       call rename(file_or_dir, fnamemodify(f,':h:h').'/'.fnamemodify(f,':t'))
+"     endfor
+"     call remove_dir_or_file(fnamemodify(f,':h'))
+"   endwhile
+" endfun
+
+
+" may throw EXCEPTION_UNPACK
+fun! scriptmanager2#Checkout(targetDir, repository) abort
   if a:repository['type'] =~ 'git\|hg\|svn'
     call vcs_checkouts#Checkout(a:targetDir, a:repository)
-
-  " .vim file and type syntax?
-  elseif has_key(a:repository, 'archive_name')
-      \ && a:repository['archive_name'] =~ '\.vim$'
-
-    if get(a:repository,'script-type','') == 'syntax'
-      let target = 'syntax'
-    else
-      let target = get(a:repository,'target_dir','plugin')
-    endif
-    call mkdir(a:targetDir.'/'.target,'p')
-    let aname = s:shellescape(a:repository['archive_name'])
-    call s:exec_in_dir([{'d':  a:targetDir.'/'.target, 'c': s:curl.' '.aname.' '.s:shellescape(a:repository['url'])}])
-    exec addVersionFile
-    call scriptmanager2#Copy(a:targetDir, a:targetDir.'.backup')
-
-  " .tar.gz or .tgz
-  elseif has_key(a:repository, 'archive_name') && a:repository['archive_name'] =~ '\.\%(tar.gz\|tgz\)$'
-    call mkdir(a:targetDir)
-    let aname = s:shellescape(a:repository['archive_name'])
-    let s = get(a:repository,'strip-components',1)
-    call s:exec_in_dir([{'d':  a:targetDir, 'c': s:curl.' '.aname.' '.s:shellescape(a:repository['url'])}
-          \ , {'c': 'tar --strip-components='.s.' -xzf '.aname}])
-    exec addVersionFile
-    call scriptmanager2#Copy(a:targetDir, a:targetDir.'.backup')
-
-
-  " .tar
-  elseif has_key(a:repository, 'archive_name') && a:repository['archive_name'] =~ '\.tar$'
-    call mkdir(a:targetDir)
-    let aname = s:shellescape(a:repository['archive_name'])
-    call s:exec_in_dir([{'d':  a:targetDir, 'c': s:curl.' '.aname.' '.s:shellescape(a:repository['url'])}
-          \ , {'c': 'tar --strip-components='.s.' -xzf '.aname}])
-    exec addVersionFile
-    call scriptmanager2#Copy(a:targetDir, a:targetDir.'.backup')
-
-  " .zip
-  elseif has_key(a:repository, 'archive_name') && a:repository['archive_name'] =~ '\.zip$'
-    call mkdir(a:targetDir)
-    let aname = s:shellescape(a:repository['archive_name'])
-    call s:exec_in_dir([{'d':  a:targetDir, 'c': s:curl.' '.s:shellescape(a:targetDir).'/'.aname.' '.s:shellescape(a:repository['url'])}
-       \ , {'c': 'unzip '.aname } ])
-    exec addVersionFile
-    call scriptmanager2#Copy(a:targetDir, a:targetDir.'.backup')
-
-  " .vba reuse vimball#Vimball() function
-  elseif has_key(a:repository, 'archive_name') && a:repository['archive_name'] =~ '\.vba\%(\.gz\)\?$'
-    call mkdir(a:targetDir)
-    let a = a:repository['archive_name']
-    let aname = s:shellescape(a)
-    call s:exec_in_dir([{'d':  a:targetDir, 'c': s:curl.' '.aname.' '.s:shellescape(a:repository['url'])}])
-    if a =~ '\.gz'
-      " manually unzip .vba.gz as .gz isn't unpacked yet for some reason
-      exec '!gunzip "'.a:targetDir.'/'.a.'"'
-      let a = a[:-4]
-    endif
-    exec 'sp '.a:targetDir.'/'.a
-    call vimball#Vimball(1,a:targetDir)
-    exec addVersionFile
-    call scriptmanager2#Copy(a:targetDir, a:targetDir.'.backup')
   else
-    throw "Don't know how to checkout source location: ".string(a:repository)."!"
+    " archive based repositories - no VCS
+    " must have a:repository['archive_name']
+
+    if !isdirectory(a:targetDir) | call mkdir(a:targetDir.'/archive','p') | endif
+
+    " basename VIM -> vim
+    let archiveName = fnamemodify(substitute(get(a:repository,'archive_name',''), '\.\zsVIM$', 'vim', ''),':t')
+
+    " archive will be downloaded to this location
+    let archiveFile = a:targetDir.'/archive/'.archiveName
+
+    call scriptmanager_util#Download(a:repository['url'], archiveFile)
+
+    call scriptmanager_util#Unpack(archiveFile, a:targetDir, get(a:repository,'strip-components',1))
+
+    call writefile([get(a:repository,"version","?")], a:targetDir."/version")
+
+    " hook for plugin / syntax files: Move into the correct direcotry:
+    if a:repository['archive_name'] =~? '\.vim$' 
+      let type = tolower(get(a:repository,'script-type',''))
+      if type  =~# '^syntax\|indent\|ftplugin$'
+        let dir = a:targetDir.'/'.type
+        call mkdir(dir)
+        call rename(a:targetDir.'/'.archiveName, dir.'/'.archiveName)
+      endif
+    endif
   endif
-endf
+endfun
 
 fun! s:shellescape(s)
   return shellescape(a:s,1)
@@ -262,7 +285,7 @@ endf
 " is there a library providing an OS abstraction? This breaks Winndows
 " xcopy or copy should be used there..
 fun! scriptmanager2#Copy(f,t)
-  if has('win16') || has('win32') || has('win64')
+  if g:is_win
     exec '!xcopy /e /i '.s:shellescape(a:f).' '.s:shellescape(a:t)
   else
     exec '!cp -r '.s:shellescape(a:f).' '.s:shellescape(a:t)
@@ -416,3 +439,57 @@ fun! scriptmanager2#UnmergePluginFiles()
   endfor
   call delete(scriptmanager2#MergeTarget())
 endfun
+
+
+if g:is_win
+  fun! scriptmanager2#FetchAdditionalWindowsTools() abort
+    if !executable("curl") && s:curl == "curl -o"
+      throw "No curl found. Either set g:netrw_http_cmd='path/curl -o' or put it in PATH"
+    endif
+    if !isdirectory(s:c['binary_utils'].'\dist')
+      call mkdir(s:c['binary_utils'].'\dist','p')
+    endif
+    " we have curl, so we can fetch remaingin deps using Download and Unpack
+    let tools = {
+      \ 'gzip': ['mirror://sourceforge/gnuwin32/gzip/1.3.12-1/', "gzip-1.3.12-1-bin.zip", "gzip"],
+      \ 'bzip2':['mirror://sourceforge/gnuwin32/bzip2/1.0.5/', "bzip2-1.0.5-bin.zip", "bzip2" ],
+      \ 'tar':  ['mirror://sourceforge/gnuwin32/tar/1.13-1/',"tar-1.13-1-bin.zip", "tar"],
+      \ 'zip':  ['mirror://sourceforge/gnuwin32/unzip/5.51-1/', "unzip-5.51-1-bin.zip", "unzip"],
+      \ 'diffutils': ['mirror://sourceforge/gnuwin32/diffutils/2.8.7-1/',"diffutils-2.8.7-1-bin.zip", "diff"],
+      \ 'patch': [ 'mirror://sourceforge/gnuwin32/patch/2.5.9-7/',"patch-2.5.9-7-bin.zip", "patch"]
+      \ }
+    for v in values(tools)
+      echo "downloading ".v[1]
+      if !executable(v[2]) && !filereadable(s:c['binary_utils'].'\'.v[1])
+        " call scriptmanager_util#DownloadFromMirrors(v[0].v[1], s:c['binary_utils'])
+      endif
+    endfor
+
+    if !executable('unzip')
+      " colorize this?
+      echo "__ its your turn: __"
+      echom "__ move all files of the zip directory into ".s:c['binary_utils'].'/dist . Close the Explorer window and the shell window to continue. Press any key'
+      call getchar()
+      exec "!".expand(s:c['binary_utils'].'/'. tools.zip[1])
+      let $PATH=$PATH.';'.s:c['binary_utils_bin']
+      if !executable('unzip')
+        throw "can't execute unzip. Something failed!"
+      endif
+    endif
+
+    " now we have unzip and can do rest
+    for k in ["gzip","bzip2","tar","diffutils","patch"]
+      if !executable(tools[k][2])
+        call scriptmanager_util#Unpack(s:c['binary_utils'].'\'.tools[k][1], s:c['binary_utils'].'\dist', 0)
+      endif
+    endfor
+
+  "if executable("7z")
+    "echo "you already have 7z in PATH. Nothing to be done"
+    "return
+  "endif
+  "let _7zurl = 'mirror://sourceforge/sevenzip/7-Zip/4.65/7z465.exe'
+  "call scriptmanager_util#DownloadFromMirrors(_7zurl, s:c['binary_utils'].'/7z.exe')
+
+  endf
+endif

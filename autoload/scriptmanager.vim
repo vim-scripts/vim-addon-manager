@@ -7,6 +7,7 @@
 " don't need a plugin. If you want to use this plugin you call Activate once
 " anyway
 augroup SCRIPT_MANAGER
+  autocmd!
   autocmd BufRead,BufNewFile *-addon-info.txt
     \ setlocal ft=addon-info
     \ | setlocal syntax=json
@@ -19,6 +20,12 @@ fun! scriptmanager#DefineAndBind(local,global,default)
 endf
 
 
+" assign g:os
+for os in split('amiga beos dos32 dos16 mac macunix os2 qnx unix vms win16 win32 win64 win32unix', ' ')
+  if has(os) | let g:os = os | break | endif
+endfor
+let g:is_win = g:os[:2] == 'win'
+
 exec scriptmanager#DefineAndBind('s:c','g:vim_script_manager','{}')
 let s:c['config'] = get(s:c,'config',expand('$HOME').'/.vim-script-manager')
 let s:c['auto_install'] = get(s:c,'auto_install', 0)
@@ -29,8 +36,24 @@ let s:c['missing_addon_infos'] = get(s:c,'missing_addon_infos', {})
 " addon_infos cache, {} if file dosen't exist
 let s:c['addon_infos'] = get(s:c,'addon_infos', {})
 let s:c['activated_plugins'] = get(s:c,'activaded_plugins', {})
-let s:c['plugin_root_dir'] = fnamemodify(expand('<sfile>'),':h:h:h')
+" If file is writeable, then this plugin was likely installed by user according 
+" to the instruction. If it is not, then it is likely a system-wide 
+" installation
+let s:c['plugin_root_dir'] = get(s:c, 'plugin_root_dir', ((filewritable(expand('<sfile>')))?
+            \                                               (fnamemodify(expand('<sfile>'),':h:h:h')):
+            \                                               ('~/vim-addons')))
+" ensure we have absolute paths (windows doesn't like ~/.. ) :
+let s:c['plugin_root_dir'] = expand(s:c['plugin_root_dir'])
 let s:c['known'] = get(s:c,'known','vim-addon-manager-known-repositories')
+
+if g:is_win
+  " if binary-utils path exists then add it to PATH
+  let s:c['binary_utils'] = get(s:c,'binary_utils',s:c['plugin_root_dir'].'\binary-utils')
+  let s:c['binary_utils_bin'] = s:c['binary_utils'].'\dist\bin'
+  if isdirectory(s:c['binary_utils'])
+    let $PATH=$PATH.';'.s:c['binary_utils_bin']
+  endif
+endif
 
 " additional plugin sources should go into your .vimrc or into the repository
 " called "vim-addon-manager-known-repositories" referenced here:
@@ -56,7 +79,8 @@ fun! scriptmanager#ReadAddonInfo(path)
       " using eval is now safe!
       return eval(body)
   else
-      throw "Invalid JSON in ".a:path."!"
+      echoe "Invalid JSON in ".a:path."!"
+      return {}
   endif
 
 endf
@@ -74,7 +98,7 @@ fun! scriptmanager#IsPluginInstalled(name)
   return isdirectory(scriptmanager#PluginDirByName(a:name))
 endf
 
-" {} if file dosen't exist
+" {} if file doesn't exist
 fun! scriptmanager#AddonInfo(name)
   let infoFile = scriptmanager#AddonInfoFile(a:name)
   let s:c['addon_infos'][a:name] = filereadable(infoFile)
@@ -121,12 +145,26 @@ endf
 " Activate activates the plugins and their dependencies recursively.
 " I sources both: plugin/*.vim and after/plugin/*.vim files when called after
 " .vimrc has been sourced which happens when you activate plugins manually.
-fun! scriptmanager#Activate(...)
+fun! scriptmanager#Activate(...) abort
   let args = copy(a:000)
-  let opts = get(args,1,{})
-  if len(args) <= 1
-    call add(args, opts)
+
+  if type(args[0])==type("")
+    " way of usage 1: pass addon names as function arguments
+    " Example: Activate("name1","name2")
+
+    let args=[args, {}]
+  else
+    " way of usage 2: pass addon names as list optionally passing options
+    " Example: Activate(["name1","name2"], { options })
+
+    let args=[args[0], get(args,1,{})]
   endif
+
+  " now opts should be defined
+  " args[0] = plugin names
+  " args[1] = options
+
+  let opts = args[1]
   let topLevel = get(opts,'topLevel',1)
   let opts['topLevel'] = 0
   let active = copy(s:c['activated_plugins'])
@@ -142,7 +180,7 @@ fun! scriptmanager#Activate(...)
     " add paths after ~/.vim but before $VIMRUNTIME
     " don't miss the after directories if they exist and
     " put them last! (Thanks to Oliver Teuliere)
-    let rtp = split(&runtimepath,',')
+    let rtp = split(&runtimepath,'\(\\\@<!\(\\.\)*\\\)\@<!,')
     let &runtimepath=join(rtp[:0] + s:new_runtime_paths + rtp[1:]
                                   \ + filter(map(copy(s:new_runtime_paths),'v:val."/after"'), 'isdirectory(v:val)') ,",")
     unlet rtp
@@ -169,7 +207,7 @@ endfun
 
 fun! scriptmanager#GlobThenSource(glob)
   for file in split(glob(a:glob),"\n")
-    exec 'source '.file
+    exec 'source '.fnameescape(file)
   endfor
 endf
 
