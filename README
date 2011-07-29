@@ -3,7 +3,7 @@ This is a mirror of http://www.vim.org/scripts/script.php?script_id=2905
 Note:
 There is also  http://packages.debian.org/sid/vim-addon-manager
 which servers a similar purpose but is Debian specific.
-I chose the same name by accident.
+I chose the same name by accident. See doc/*
 
 usage example:
 
@@ -22,38 +22,29 @@ It's main task is to fetch Vim plugins putting each into its own directory.
 Those directories are added to runtimepath for you.
 A plugin can depend on other Vim plugins. Those dependencies are fetched as well.
 
-Scripts are updated by running git pull, svn up etc.
+Scripts are updated by running git pull, svn up etc. Updating .tar.gz based plugins hosted on www.vim.org is supported.
 
 I recommend installing this plugin using
 git clone git://github.com/MarcWeber/vim-addon-manager.git
 (project page): http://github.com/MarcWeber/vim-addon-manager
 
-so that it's easier for you keeping it up to date.
+So that it's easier for you keeping it up to date.
 
 Note: I wrote this plugin to make your and my life easier.
 Help my improving it by sending feedback!
 
-Credits to Tim Pope who sent first patches!
-
 Note: I setup a cron job which updates the 
-vim-plugin-manager-known-repositories once a day automatically.
-Enjoy!
+vim-plugin-manager-known-repositories every couple of days.
 
-similar work:
-=======================
-This script servers a similar purpose:
-http://github.com/c9s/Vimana
+Nowadays there are different script management tools. See doc/* file.
+However vim-addon-manager has
+- a maintained list of packages (vim-addon-manager-known-repositories)
+- allows you to reuse code by specifying dependencies.
+- is VimL only
+- is easiest to use (install plugins by names)
+- its you choosing between stable or dev version ( I personally recommend dev versions because I do not always upload the latest script versions)
+The doc/* file contains links to all alternatives I know.
 
-vim-addon-manager differs:
-* it installs each plugin into it's own directory.
-   (I'm sure it's easy to patch Vimana to do the same)
-* You can activate / install plugins at runtime as needed using the
-    ActivateAddons command
-   This is nice because plugins can have optional dependencies which
-   are loaded when required only !
-* cause it's written in VimL you only need these dependencies:
-  - curl
-  - git   (recommended)
-  - svn (for vim-latex)
+I have to thank various people helping me debugging and improving various aspects. See doc/*
 
-Try both tools. Use whatever serves you best!
+TROUBLE ? Contact me or create a ticket (github page).

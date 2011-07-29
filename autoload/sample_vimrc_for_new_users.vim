@@ -54,6 +54,20 @@ noremap \e :e<space>**/*
 " :bn = :bnext  @: repeats last command
 noremap \n :n<space>**/*
 
+" minimal command-t like alternative using tlib: (_g_lob _o_pen)
+noremap \go
+
+" open a filetype file. Those files are sourced by Vim to setup filetype
+" specific mappings. Eg use it for defining commands / mappings which apply
+" for python or perl files only
+" eg command -buffer DoStuff call DoStuff()
+" or map <buffer> \dostuff :call DoStuff()<cr>
+noremap \ft :exec 'e ~/.vim/ftplugin/'.&filetype.'_you.vim'<cr>
+
+" for windows: make backspace work. Doesn't hurt on linux. This should be
+" default!
+set bs=2
+
 " foreign plugin vim-addon-manager {{{1
 
 " commenting this code because I assume you already have it in your ~/.vimrc:
@@ -67,56 +81,22 @@ noremap \n :n<space>**/*
 " NAME-addon-info.txt files. Probably you want to substitude nameN by plugins
 " such as snipMate, tlib etc.
 
-" call scriptmanager#Activate(['JSON',"name1","name2"])
+" call vam#ActivateAddons(['JSON',"tmru","matchit.zip","vim-dev-plugin","name1","name2"])
+" JSON: syntax highlighting for the *info* files
+" tmru: list of most recentely used files
+" matchit.zip: make % (match to mathing items such as opening closing parenthesis) even smarter
+" vim-dev-plugin: smarter omni completion and goto autoload function for VimL scripts
 
 " foreign plugins tlib {{{1
 
 " this is from tlib. I highly recommend having a look at that library.
+" Eg its plugin tmru (most recently used files) provides the command
+" TRecentlyUsedFiles you can map to easily:
 noremap \r :TRecentlyUsedFiles<cr>
-" disable some plugins. Maybe you don't want all..
-let loaded_cmdlinehelp=1
-let loaded_concordance=1
-let loaded_evalselection=1
-let loaded_glark=1
-let loaded_hookcursormoved=1
-let loaded_linglang=1
-let loaded_livetimestamp=1
-let loaded_localvariables=1
-let loaded_loremipsum=1
-let loaded_my_tinymode=1
-let loaded_netrwPlugin=1
-let loaded_pim=1
-let loaded_quickfixsigns=1
-let loaded_scalefont=1
-let loaded_setsyntax=1
-let loaded_shymenu=1
-let loaded_spec=1
-let loaded_tassert=1
-let loaded_tbak=1
-let loaded_tbibtools=1
-let loaded_tcalc=1
-let loaded_tcomment=1
-let loaded_techopair=1
-let loaded_tgpg=1
-let loaded_tlog=1
-let loaded_tmarks=1
-let loaded_tmboxbrowser=1
-let loaded_tmru=1
-let loaded_tortoisesvn=1
-let loaded_tregisters=1
-let loaded_tselectbuffer=1
-let loaded_tselectfile=1
-let loaded_tsession=1
-let loaded_tskeleton=1
-let loaded_tstatus=1
-let loaded_ttagcomplete=1
-let loaded_ttagecho=1
-let loaded_ttags=1
-"let loaded_ttoc=1
-let loaded_viki=1
-let loaded_vikitasks=1
 
-
+" simple glob open based on tlib's List function (similar to TCommand or fuzzy
+" plugin etc)
+noremap \go :exec 'e '. fnameescape(tlib#input#List('s','select file', split(glob(input('glob pattern, curr dir:','**/*')),"\n") ))<cr>
 
 " dummy func to enabling you to load this file after adding the top level {{{1
 " dir to runtimepath using :set runtimpeth+=ROOT
@@ -125,6 +105,93 @@ fun! sample_vimrc_for_new_users#Load()
 endf
 
 finish
+
+DON'T MISS THESE {{{1
+
+digraphs: type chars which are untypable:
+c-k =e  : types € (see :h digraph)
+
+c-x c-f : file completion
+c-x c-l : line completion
+c-n     : kind of keyword completion - completes everything found in all opened buffers.
+          So maybe even consider openining many files uing :n **/*.ext
+          (if you're a nerd get vim-addon-completion and use the camel case buffer completion found in there)
+all: :h ins-completion
+
+hjkl - as experienced user you'll notice that you don't use them that often.
+So you should at least know about the following (and optionally skim :h
+motion.txt several times and or create your own motions)
+
+how to reach insert mode:
+| is cursor location
+
+    O
+I  i|a  A
+    o
+
+important movements and their relation:
+
+       gg                       
+     <c-u>                      H (top line window)
+
+-      k                        
+0    h | l   $                  M
+<cr>   j
+     <c-v>
+                                L
+       G
+
+
+movements:
+
+use search / ? to place cursor. Remember that typing a word is not always the
+              most efficient way. Eg try /ys t this. And you'll get excatly
+              one match in the whole document.
+
+c-o c-i : jump list history
+
+g;      : where did I edit last (current buffer) - you can repeat it
+
+Learn about w vs W. Try it CURSOR_HERE.then.type.it (same for e,E)
+
+f,F,t,T : move to char or just before it forward / backward current line. (A
+          must)
+
+be faster: delete then goto insert mode:
+C: deletes till end of line
+c a-movement-action: deletes characters visited while moving
+
+more movements:
+(, ): move by sentence
+[[, ]], {, } : more blockwise movements which are often helpful
+...
+
+This script may also have its usage: Jump to charater location fast:
+http://www.vim.org/scripts/script.php?script_id=3437
+
+How to get O(1) access to your files you're editing at the moment {{{1
+
+Yes :b name is fine, cause it matches HeHiname.ext. Still too much to type.
+Usually you work with only a set of buffers. Open them in tabs. Add something
+like this to your .vimrc so that you can switch buffers using m-1 m-2 etc:
+
+  " m-X key jump to tab X
+  for i in range(1,8)
+    exec 'map <m-'.i.'> '.i.'gt'
+  endfor
+
+  " faster novigation in windows:
+  for i in ["i","j","k","l","q"]
+    exec 'noremap <m-s-'.i.'> <c-w>'.i
+  endfor
+
+The ways to optimize code navigation are endless. Watch yourself.
+If you think something takes too long - optimize it.
+
+Bindings in command line are shitty?
+yes - remap them - or use "emacscommandline" plugin which does this for you.
+or use q: (normal mode) or c-f in commandline
+
 
 MY COMMENTS ABOUT VIM AND ITS USAGE {{{1
 ========================================
@@ -135,10 +202,10 @@ I like Vim cause its that fast and easy to extend.
 I also learned that VimL is a nice language. It was ahead of time when it
 was invented. However today it can be considered limiting in various ways.
 Eg you don't want to write parsers in it. Its too slow for those use cases.
-Yet its powerful enough to make everyday easier - even competitive to bloated
-IDEs. Example plugins you should know about:
+Yet its powerful enough to make everydays work easier - even competitive to
+bloated IDEs. Example plugins you should know about:
 
-- tlib library
+- tlib library (and all of Tom's plugins
 
 - snipmate (or xptemplate): Insert text snippets. Its not only about speed.
   Snippets are a nice way to organize your memos.
@@ -167,6 +234,7 @@ most important mappings / commands:
 g;  = jump back in list of last edited locations
 <c-o> <c-i> = jump back and forth in location list
 <c-^> = toggle buffers
+c-w then one of v s w q t h j k l (z) : move cursor, split windows, quit buffer
 
 q:, ?:, /: : Open mini buffer to browse or edit command or search history
              You can open this from command line using <c-f>!
@@ -185,6 +253,38 @@ What are the limitations causing greatest impact to software developers using Vi
   when interfacing with external tools.
   Impact: People tried writing debugger features. But all solutions are kind
   of doomed unless Vim gets a nice async communication interface.
+
+  Possible known ways to work around it?
+
+        - vim-addon-async (depends on client-server but works very well)
+
+        - implement windows version of this patch
+          http://github.com/bartman/vim.git (which still can be improved a lot)
+          and make it it poll file handlers when not typing. Implement a shell 
+          like interface. doc: http://github.com/bartman/vim/wiki/_pages
+                         
+        - There is a patch which let's you start a shell in Vim. I don't think
+          it got updated (which is linux only)                                
+          http://www.wana.at/vimshell/        
+          (Maybe cygwin or such ?) - I never tried it.
+
+        - vimshell (www.vim.org). You have to get a dell or such. I think this
+          could satisfy you.                                                  
+          (vcs: http://github.com/Shougo/vimshell)
+
+        - screen (see other mail)
+          c-a S splits the window
+          c-a tab switches focus 
+                                
+          if you run interpreter this way: tcl | tee log
+                                                        
+          you may have a chance getting errors into quickfix or such
+                                                                    
+          (requires cygwin or such - I never tried it on Windows ?) 
+
+          use Emacs and vimpulse (I hate to say it)
+
+  
 - Many coding helpers should not have been written in VimL. They should have
   been written in a proper language so that all open source editors can
   benefit from their features. An Example is the broken PHP completion which
@@ -195,7 +295,8 @@ What are the limitations causing greatest impact to software developers using Vi
     is only a coding editor backend)
   * codefellow (same for Scala).
 
-Vim can be one of the fastest editors you'll start to love (and hate)
+Vim can be one of the fastest editors you'll start to love (and hate for some
+of the shortcomings)
 
 
 " additional resources - how to continue learning about Vim? {{{1
@@ -207,6 +308,7 @@ http://github.com/dahu/LearnVim
 
 Vim Wiki:
 http://vim.wikia.com
+Checkout its sample .vimrc: http://vim.wikia.com/wiki/Example_vimrc
 
 join #vim (irc.freenode.net)
 
