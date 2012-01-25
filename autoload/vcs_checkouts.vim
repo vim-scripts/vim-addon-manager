@@ -2,7 +2,7 @@
 " its very short probably VAM will keep a copy
 
 exec vam#DefineAndBind('s:c','g:vim_addon_manager','{}')
-let s:c.shallow_clones = get(s:c,'shallow_clones',1)
+let s:c.shallow_clones = get(s:c,'shallow_clones', executable('git') && system('git clone --help') =~ '--depth')
 let s:c.scm_extra_args = get(s:c,'scm_extra_args',{})
 
 let s:se = s:c.scm_extra_args
@@ -34,7 +34,7 @@ let s:c.bzr_update = get(s:c, 'bzr_update', { 'f': 'vam#utils#RunShell', 'a': ['
 let s:c.svn_update = get(s:c, 'svn_update', { 'f': 'vam#utils#RunShell', 'a': ['cd $p && svn update']})
 
 fun! vcs_checkouts#SVNCheckout(repository, targetDir)
-  let args=['svn checkout $ $p', a:repository, a:repository.url, a:targetDir]
+  let args=['svn checkout $.url $3p', a:repository, a:repository.url, a:targetDir]
   for key in filter(['username', 'password'], 'has_key(a:repository, v:val)')
     let args[0].=' --'.key.' $'
     let args+=[a:repository[key]]

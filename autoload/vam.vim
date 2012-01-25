@@ -31,20 +31,21 @@ let s:c['auto_install'] = get(s:c,'auto_install', 0)
 " repository locations:
 let s:c['plugin_sources'] = get(s:c,'plugin_sources', {})
 " if a plugin has an item here the dict value contents will be written as plugin info file
-let s:c['missing_addon_infos'] = get(s:c,'missing_addon_infos', {})
 let s:c['activated_plugins'] = get(s:c,'activated_plugins', {})
-" If directory where plugin is installed is writeable, then this plugin was
-" likely installed by user according to the instruction. If it is not, then it
-" is likely a system-wide installation.
-let s:c['system_wide'] = !filewritable(expand('<sfile>:h:h:h'))
-let s:c['plugin_root_dir'] = get(s:c, 'plugin_root_dir', ((s:c['system_wide'])?
-            \                                               ('~/vim-addons'):
-            \                                               (expand('<sfile>:h:h:h'))))
+
+" gentoo users may install VAM system wide. In that case s:d is not writeable.
+" In the future this may be put into a gentoo specific patch.
+let s:d = expand('<sfile>:h:h:h')
+let s:c['plugin_root_dir'] = get(s:c, 'plugin_root_dir', filewritable(s:d) ? s:d : '~/.vim/vim-addons' )
+unlet s:d
+
 " ensure we have absolute paths (windows doesn't like ~/.. ) :
 let s:c['plugin_root_dir'] = expand(s:c['plugin_root_dir'])
-let s:c['known'] = get(s:c,'known','vim-addon-manager-known-repositories')
-let s:c['change_to_unix_ff'] = get(s:c, 'change_to_unix_ff', (g:os=~#'unix'))
-let s:c['do_diff'] = get(s:c, 'do_diff', 1)
+let s:c['dont_source'] = get(s:c, 'dont_source', 0)
+let s:c['plugin_dir_by_name'] = get(s:c, 'plugin_dir_by_name', 'vam#DefaultPluginDirFromName')
+
+" More options that are used for plugins’ installation are listed in 
+" autoload/vam/install.vim
 
 " for testing it is necessary to avoid the "Press enter to continue lines"
 " (cygwin?). Thus provide an option making all shell commands silent
@@ -70,8 +71,10 @@ else
 endif
 
 fun! vam#VerifyIsJSON(s)
-  let stringless_body = substitute(a:s,'"\%(\\.\|[^"\\]\)*"','','g')
-  return stringless_body !~# "[^,:{}\\[\\]0-9.\\-+Eaeflnr-u \t]"
+  " You must allow single-quoted strings in order for writefile([string()]) that 
+  " adds missing addon information to work
+  let scalarless_body = substitute(a:s, '\v\"%(\\.|[^"\\])*\"|\''%(\''{2}|[^''])*\''|true|false|null|[+-]?\d+%(\.\d+%([Ee][+-]?\d+)?)?', '', 'g')
+  return scalarless_body !~# "[^,:{}[\\] \t]"
 endf
 
 " use join so that you can break the dict into multiple lines. This makes
@@ -86,8 +89,11 @@ fun! vam#ReadAddonInfo(path)
   let body = join(readfile(a:path),"")
 
   if vam#VerifyIsJSON(body)
-      " using eval is now safe!
-      return eval(body)
+    let true=1
+    let false=0
+    let null=''
+    " using eval is now safe!
+    return eval(body)
   else
     call vam#Log( "Invalid JSON in ".a:path."!")
     return {}
@@ -95,17 +101,31 @@ fun! vam#ReadAddonInfo(path)
 
 endf
 
-fun! vam#PluginDirByName(name)
-  return s:c['plugin_root_dir'].'/'.substitute(a:name,'[\\/:]','','g')
+fun! vam#DefaultPluginDirFromName(name)
+  " this function maps addon names to their storage location. \/: are replaced
+  " by - (See name rewriting)
+  return s:c.plugin_root_dir.'/'.substitute(a:name, '[\\/:]\+', '-', 'g')
+endfun
+fun! vam#PluginDirFromName(...)
+  return call(s:c.plugin_dir_by_name, a:000, {})
 endf
 fun! vam#PluginRuntimePath(name)
   let info = vam#AddonInfo(a:name)
-  return vam#PluginDirByName(a:name).(has_key(info, 'runtimepath') ? '/'.info['runtimepath'] : '')
+  return vam#PluginDirFromName(a:name).(has_key(info, 'runtimepath') ? '/'.info['runtimepath'] : '')
 endf
 
 " doesn't check dependencies!
 fun! vam#IsPluginInstalled(name)
-  let d = vam#PluginDirByName(a:name)
+  let d = vam#PluginDirFromName(a:name)
+
+  " this will be dropped in about 12 months which is end of 2012
+  let old_path=s:c.plugin_root_dir.'/'.substitute(a:name, '[\\/:]\+', '', 'g')
+  if d != old_path && isdirectory(old_path)
+    if confirm("VAM has changed addon names policy for name rewriting. Rename ".old_path." to ".d."?", "&Ok") == 1
+      call rename(old_path, d)
+    endif
+  endif
+
   " if dir exists and its not a failed download
   " (empty archive directory)
   return isdirectory(d)
@@ -145,7 +165,10 @@ fun! vam#ActivateRecursively(list_of_names, ...)
       " activate dependencies merging opts with given repository sources
       " sources given in opts will win
       call vam#ActivateAddons(keys(dependencies),
-        \ extend(copy(opts), { 'plugin_sources' : extend(copy(dependencies), get(opts, 'plugin_sources',{}))}))
+        \ extend(copy(opts), {
+            \ 'plugin_sources' : extend(copy(dependencies), get(opts, 'plugin_sources',{})),
+            \ 'requested_by' : [name] + get(opts, 'requested_by', [])
+        \ }))
 
       " source plugin/* files ?
       let rtp = vam#PluginRuntimePath(name)
@@ -200,12 +223,6 @@ fun! vam#ActivateAddons(...) abort
 
   call call('vam#ActivateRecursively', args)
 
-  " don't know why activating known-repos causes trouble Silex reported it
-  " does. Doing so is not recommended. So prevent it
-  if !exists('g:in_load_known_repositories') && index(args[0],"vim-addon-manager-known-repositories") != -1
-    throw "You should not activate vim-addon-manager-known-repositories. vim-addon-mananger will do so for you when needed. This way Vim starts up faster in the common case. Also try vam#install#LoadKnownRepos() instead."
-  endif
-
   if topLevel
     " deferred tasks:
     " - add addons to runtimepath
@@ -218,10 +235,12 @@ fun! vam#ActivateAddons(...) abort
     let rtp = split(&runtimepath, '\v(\\@<!(\\.)*\\)@<!\,')
     let escapeComma = 'escape(v:val, '','')'
     let after = filter(map(copy(new_runtime_paths), 'v:val."/after"'), 'isdirectory(v:val)')
-    let &runtimepath=join(rtp[:0] + map(copy(new_runtime_paths), escapeComma)
-                \                 + rtp[1:]
-                \                 + map(after, escapeComma),
-                \         ",")
+    if !s:c.dont_source
+      let &runtimepath=join(rtp[:0] + map(copy(new_runtime_paths), escapeComma)
+                  \                 + rtp[1:]
+                  \                 + map(after, escapeComma),
+                  \         ",")
+    endif
     unlet rtp
 
     if !has('vim_starting')
@@ -232,13 +251,46 @@ fun! vam#ActivateAddons(...) abort
     endif
 
     for rtp in new_runtime_paths
+      " filetype off/on would do the same ?
       call vam#GlobThenSource(rtp.'/ftdetect/*.vim')
     endfor
 
   endif
 endfun
 
+fun! vam#DisplayAddonInfo(name)
+  let plugin = get(g:vim_addon_manager['plugin_sources'], a:name, {})
+  let name = a:name
+  if empty(plugin) && a:name =~ '^\d\+$'
+    " try to find by script id
+    let dict = filter(copy(g:vim_addon_manager['plugin_sources']), 'get(v:val,"vim_script_nr","")."" == '.string(1*a:name))
+    if (empty(dict))
+      throw "unkown script ".a:name
+    else
+      let plugin = get(values(dict), 0, {})
+      let name = keys(dict)[0]
+    endif
+  end
+  if empty(plugin)
+    echo "Invalid plugin name: " . a:name
+    return
+  endif
+  echo '========================'
+  echo 'VAM name: '.name
+  for key in keys(plugin)
+    echo key . ': ' . plugin[key]
+  endfor
+endfun
+
+fun! vam#DisplayAddonsInfo(names)
+  call vam#install#LoadPool()
+  for name in a:names
+    call vam#DisplayAddonInfo(name)
+  endfor
+endfun
+
 fun! vam#GlobThenSource(glob)
+  if s:c.dont_source | return | endif
   for file in split(glob(a:glob),"\n")
     exec 'source '.fnameescape(file)
   endfor
@@ -254,7 +306,7 @@ augroup end
 fun! vam#Hack()
   " now source after/plugin/**/*.vim files explicitly. Vim doesn't do it (hack!)
   for p in keys(s:c['activated_plugins'])
-      call vam#GlobThenSource(vam#PluginDirByName(p).'/after/plugin/**/*.vim')
+      call vam#GlobThenSource(vam#PluginDirFromName(p).'/after/plugin/**/*.vim')
   endfor
 endf
 
@@ -267,7 +319,7 @@ fun! vam#AddonInfoFile(name)
   "   - json says all about its contents (Let's hope all browsers still render
   "     it in a readable way
 
-  let p = vam#PluginDirByName(a:name)
+  let p = vam#PluginDirFromName(a:name)
   let default = p.'/addon-info.json'
   let choices = [ default , p.'/plugin-info.txt', p.'/'.a:name.'-addon-info.txt']
   for f in choices
@@ -276,14 +328,18 @@ fun! vam#AddonInfoFile(name)
     endif
   endfor
   return default
-endf
+endfun
 
 " looks like an error but is not. Catches users attention. Logs to :messages
 fun! vam#Log(s, ...)
   let hi = a:0 > 0 ? a:1 : 'WarningMsg'
   exec 'echohl '. hi
-  for l in split(a:s, "\n")
-    exec 'echomsg '.string(l)
+  for l in split(a:s, "\n", 1)
+    if empty(l)
+      echom ' '
+    else
+      echom l
+    endif
   endfor
   echohl None
 endfun
@@ -291,10 +347,31 @@ endfun
 " If you want these commands witohut activating plugins call
 " vam#ActivateAddons([]) with empty list. Not moving them into plugin/vam.vim
 " to prevent additional IO seeks.
-command! -nargs=* -complete=customlist,vam#install#AddonCompletion InstallAddons :call vam#install#Install([<f-args>])
+
+" its likely that the command names change introducing nice naming sheme
+" Not sure which is best. Options:
+" 1) *VAM  2) Addon* 3) VAM*
+" 3 seems to be best but is more to type.
+" Using 1) you can still show all commands by :*VAM<c-d> but this scheme is
+" less common. So 2) is my favorite right now. I'm too lazy to break things at
+command! -nargs=* -complete=customlist,vam#install#NotInstalledAddonCompletion InstallAddons :call vam#install#Install([<f-args>])
 command! -nargs=* -complete=customlist,vam#install#AddonCompletion ActivateAddons :call vam#ActivateAddons([<f-args>])
+command! -nargs=* -complete=customlist,vam#install#AddonCompletion AddonsInfo :call vam#DisplayAddonsInfo([<f-args>])
 command! -nargs=* -complete=customlist,vam#install#InstalledAddonCompletion ActivateInstalledAddons :call vam#ActivateAddons([<f-args>])
-command! -nargs=* -complete=customlist,vam#install#AddonCompletion UpdateAddons :call vam#install#Update([<f-args>])
+command! -nargs=* -complete=customlist,vam#install#UpdateCompletion UpdateAddons :call vam#install#Update([<f-args>])
+command! -nargs=0 UpdateActivatedAddons exec 'UpdateAddons '.join(keys(g:vim_addon_manager['activated_plugins']),' ')
 command! -nargs=* -complete=customlist,vam#install#UninstallCompletion UninstallNotLoadedAddons :call vam#install#UninstallAddons([<f-args>])
+
+
+" plugin name completion function:
+augroup VAM
+  " yes, this overwrites omnifunc set by vim-dev plugin for instance. I don't
+  " care. You install plugins, then you usually restart anyway.
+  autocmd BufRead,BufNewFile *.vim,*vimrc inoremap <buffer> <C-x><c-p> <c-o>:setlocal omnifunc=vam#install#CompleteAddonName<cr><c-x><c-o>
+augroup end
+
+" plugin completion:
+
+
 
 " vim: et ts=8 sts=2 sw=2

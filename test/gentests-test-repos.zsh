@@ -34,7 +34,8 @@ function addtofile()
 typeset -a TESTS
 (( ISWINE )) || TESTS+=( git bzr )
 (( ISWINE )) && sed -r -i -e 's:/:\\:g' files-*.lst
-TESTS+=( hg svn tar tgz tgz2 tbz tbz2 zip vba vgz vbz archive_name )
+TESTS+=( hg svn tar tgz tgz2 tbz tbz2 zip vba vmb vgz vbz archive_name )
+TESTS+=( mis mhg )
 for t in $TESTS ; do
 local ANAME=vam_test_$t
 #▶2 activate
@@ -43,6 +44,14 @@ cat > activate-$t.in <<EOF
 :call WriteGlob()
 EOF
 addtofile activate-$t.ok init.ok files-$t.lst
+#▶2 activate-vimrc
+cat > activate-vimrc-$t.vim << EOF
+call vam#ActivateAddons("$ANAME")
+EOF
+cat > activate-vimrc-$t.in << EOF
+:call WriteGlob()
+EOF
+cp activate-$t.ok activate-vimrc-$t.ok
 #▶2 install
 cat > install-$t.in <<EOF
 :runtime! autoload/vam.vim
@@ -67,9 +76,10 @@ fi
 done
 #▶1 Update
 UPDATETGZ2HEADER="\
-:let desc=g:vim_addon_manager.plugin_sources.vam_test_tgz2
+:let desc=copy(g:vim_addon_manager.plugin_sources.vam_test_tgz2)
 :let desc.version='0.1.8'
-:let desc.url=desc.url[:-5].'-nodoc.tar.bz2'"
+:let desc.url=desc.url[:-5].'-nodoc.tar.bz2'
+:let patch={'vam_test_tgz2': desc}"
 #▶2 Update activate plugin
 T=update-tgz2
 cp activate-tgz2.in $T.in
@@ -103,10 +113,11 @@ addtofile $T.ok install-tgz2.ok install-tgz2.ok
 T=update-tgz2-dodiff
 cp activate-tgz2.in $T.in
 cat >> $T.in << EOF
-:let desc=g:vim_addon_manager.plugin_sources.vam_test_tgz2
+:let desc=copy(g:vim_addon_manager.plugin_sources.vam_test_tgz2)
 :let desc.version='0.1.8'
 :let desc.archive_name=matchstr(desc.url, '\v[^/]+$')
 :let desc.url=desc.url[:-5].'-2.tgz'
+:let patch={'vam_test_tgz2': desc}
 :let file=g:vim_addon_manager.plugin_root_dir."/vam_test_tgz2/plugin/frawor.vim"
 :let g:vim_addon_manager.do_diff=1
 :execute "edit ".fnameescape(file)
@@ -137,4 +148,9 @@ done
 cat > init.in << EOF
 :call WriteGlob()
 EOF
+#▶1 Add `:source addmessages.vim'
+for f in *.in ; do
+    cat >> $f <<< $':source addmessages.vim\n'
+done
+#▲1
 # vim: fmr=▶,▲ fenc=utf-8 et ts=4 sts=4 sw=4 ft=zsh cms=#%s

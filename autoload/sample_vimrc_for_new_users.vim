@@ -1,3 +1,6 @@
+" minimal useful unbiased recommended .vimrc: http://vim.wikia.com/wiki/Example_vimrc
+
+
 " kept recoding the same things over and over again.
 " So I write what I think is useful to you here.
 "
@@ -54,15 +57,17 @@ noremap \e :e<space>**/*
 " :bn = :bnext  @: repeats last command
 noremap \n :n<space>**/*
 
-" minimal command-t like alternative using tlib: (_g_lob _o_pen)
-noremap \go
-
 " open a filetype file. Those files are sourced by Vim to setup filetype
 " specific mappings. Eg use it for defining commands / mappings which apply
 " for python or perl files only
 " eg command -buffer DoStuff call DoStuff()
 " or map <buffer> \dostuff :call DoStuff()<cr>
 noremap \ft :exec 'e ~/.vim/after/ftplugin/'.&filetype.'_you.vim'<cr>
+
+" when pasting code you may want to enable paste option so that Vim doesn't
+" treat the pasted text like typed text. Typed text casues vim to to repeating
+" comments and change indentation - when pasting you don't want this.
+noremap \ip :set invpaste<bar>echo &paste ? 'pasting is on' : 'pasting is off'
 
 " for windows: make backspace work. Doesn't hurt on linux. This should be
 " default!
@@ -98,6 +103,17 @@ noremap \r :TRecentlyUsedFiles<cr>
 " plugin etc)
 noremap \go :exec 'e '. fnameescape(tlib#input#List('s','select file', split(glob(input('glob pattern, curr dir:','**/*')),"\n") ))<cr>
 
+" sometimes when using tags the list is too long. filtering it by library or
+" such can easily be achived by such code: {{{'
+    fun! SelectTag(regex)
+      let tag = eval(tlib#input#List('s','select tag', map(taglist(a:regex), 'string([v:val.kind, v:val.filename, v:val.cmd])')))
+      exec 'e '.fnameescape(tag[1])
+      exec tag[2]
+    endf
+    command!-nargs=1 TJump call SelectTag(<f-args>)
+
+" }}}
+
 " dummy func to enabling you to load this file after adding the top level {{{1
 " dir to runtimepath using :set runtimpeth+=ROOT
 fun! sample_vimrc_for_new_users#Load()
@@ -106,18 +122,27 @@ fun! sample_vimrc_for_new_users#Load()
   " runtime autoload/sample_vimrc_for_new_users.vim
 endf
 
-finish
-
-DON'T MISS THESE {{{1
-
 " create directory for files before Vim tries writing them:
 augroup CREATE_MISSING_DIR_ON_BUF_WRITE
   autocmd BufWritePre * if !isdirectory(expand('%:h')) | call mkdir(expand('%:h'),'p') | endif
 augroup end
 
-digraphs: type chars which are untypable:
+finish
+Vim is ignoring this text after finish.
+
+DON'T MISS THESE {{{1
+
+Each vim boolean setting can be off or on. You can invert by invNAME. Example:
+enable setting:  :set swap 
+disable setting: :set noswap 
+toggle setting:  :set invswap
+Settings can be found easily by :h '*chars*'<c-d>
+
+== typing characters which are not on your keyboard ==
+digraphs: type chars which are untypable, for example:
 c-k =e  : types € (see :h digraph)
 
+== completions ==
 c-x c-f : file completion
 c-x c-l : line completion
 c-n     : kind of keyword completion - completes everything found in all opened buffers.
@@ -125,9 +150,10 @@ c-n     : kind of keyword completion - completes everything found in all opened 
           (if you're a nerd get vim-addon-completion and use the camel case buffer completion found in there)
 all: :h ins-completion
 
+== most important movement keys ==
 hjkl - as experienced user you'll notice that you don't use them that often.
-So you should at least know about the following (and optionally skim :h
-motion.txt several times and or create your own motions)
+So you should at least know about the following and have a look at :h motion.txt
+and create your own by mappings
 
 how to reach insert mode:
 | is cursor location
@@ -200,9 +226,28 @@ yes - remap them - or use "emacscommandline" plugin which does this for you.
 or use q: (normal mode) or c-f in commandline
 
 
+
+== indentation, spaces, tabs ==
+Tab: default behavior of vim is: add &tabstop spaces unless expandtab is not
+set. You can always insert real tabs by <c-v><tab>. However tabstob should be
+treated as display setting. Use sw setting and c-t, c-d instead.
+
+c-t: increase indentation
+c-d: decrease indentation
+c-f: auto indent current line (requires indentation setup)
+:setlocal sw=4: use 4 spacse for indentation
+:setlocal expandtab: expand tab to spaces (default)
+>3j . .  increase indentation of 3 lines and repeat two times
+:setlocal tabstop: a tab is viewed as how many spaces in a file?
+
+:set list  : displays spaces and tabs
+
+project specific settings: see vim-addon-local-vimrc
+
+
+
 MY COMMENTS ABOUT VIM AND ITS USAGE {{{1
 ========================================
-Vim is ignoring this text after finish.
 
 
 I like Vim cause its that fast and easy to extend.
@@ -226,11 +271,13 @@ bloated IDEs. Example plugins you should know about:
 
 - commenting plugins
 
+- vim-addon-local-vimrc (project specific settings)
+
 - ... (You want a plugin added here?)
 
 What you should know about:
 - :h motion.txt (skim it once)
-- Vim keeps history as tree.
+- Vim keeps history as tree. (g+ g- mappings)
 - :h quickfix (load compiler output into an error list)
 - how to use tags - because this (sometimes fuzzzy) thing
   is still fast to setup and works very well for many use cases.
@@ -301,6 +348,7 @@ What are the limitations causing greatest impact to software developers using Vi
   * vim-addon-scion (Haskell development helper app is written in Haskell. Vim
     is only a coding editor backend)
   * codefellow (same for Scala).
+  * eclim (Eclipse features exposed to Vim And Vim backend implementation)
 
 Vim can be one of the fastest editors you'll start to love (and hate for some
 of the shortcomings)

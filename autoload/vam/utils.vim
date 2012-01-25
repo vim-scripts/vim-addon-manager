@@ -13,7 +13,7 @@ let s:curl = exists('g:netrw_http_cmd') ? g:netrw_http_cmd : 'curl -o'
 
 " EXamples:
 " vam#utils#ShellDSL('$', 'escape this/\') == '''escape this/\''' 
-" vam#utils#ShellDSL('$1 $[1p]', 'escape this/\') =='''escape this/\'' ''escape this\\''' 
+" vam#utils#ShellDSL('$1 $[2p] $1p', 'escape this/\',\'other\') =='''escape this/'' ''other'' ''escape this/''' 
 " vam#utils#ShellDSL('$.url $[1p.url] $1p.url', {'url':'URL'} ) =='''URL'' ''URL'' ''URL''' 
 fun! vam#utils#ShellDSL(cmd, ...) abort
   let args = a:000
@@ -27,11 +27,11 @@ fun! vam#utils#ShellDSL(cmd, ...) abort
       " should not happen
       throw 'vam#utils#ShellDSL, bad : '.x
     endif
-    if list[1] == ''
+    if list[1] != ''
+      let p= args[list[1]-1]
+    else
       let p = args[i]
       let i += 1
-    else
-      let p= args[list[2]]
     endif
     if list[3] != ''
       for path in split(list[3],'\.')
@@ -142,7 +142,7 @@ fun! vam#utils#Unpack(archive, targetDir, ...)
     " hook for plugin / syntax files: Move into the correct direcotry:
     let dir = a:targetDir.'/plugin'
     let type = opts['script-type']
-    if type  =~# '\v^%(syntax|indent|ftplugin)$'
+    if type  =~# '\v^%(%(after\/)?syntax|indent|ftplugin)$'
       let dir = a:targetDir.'/'.type
     elseif type is 'color scheme'
       let dir = a:targetDir.'/colors'
@@ -153,7 +153,7 @@ fun! vam#utils#Unpack(archive, targetDir, ...)
     call writefile(readfile(a:archive,'b'), dir.'/'.fnamemodify(a:archive, ':t'), 'b')
 
   " .gz .bzip2 (or .vba.* or .tar.*)
-  elseif s:EndsWith(a:archive, keys(gzbzip2) )
+  elseif call(function('s:EndsWith'), [a:archive] + keys(gzbzip2) )
     " I was told tar on Windows is buggy and can't handle xj or xz correctly
     " so unpack in two phases:
 
@@ -223,7 +223,7 @@ fun! vam#utils#Unpack(archive, targetDir, ...)
     call vam#utils#RunShell('7z x -o$ $', a:targetDir, a:archive)
     exec strip
 
-  elseif s:EndsWith(a:archive, '.vba')
+  elseif s:EndsWith(a:archive, '.vba','.vmb')
     " .vba reuse vimball#Vimball() function
     exec 'sp '.fnameescape(a:archive)
     call vimball#Vimball(1,a:targetDir)
@@ -388,4 +388,12 @@ fun! vam#utils#TempDir(name)
   " expand make \ out of / on Windows
   return expand(s:tmpDir.'/'.a:name)
 endf
+
+" tries finding a new name if a plugin was renamed.
+" Also tries to provide suggestions if you made trivial typos (case,
+" forgetting _ special characters and such)
+fun! vam#utils#TypoFix(name)
+   return substitute(tolower(a:name), '[_/\-]*', '', 'g')
+endf
+
 " vim: et ts=8 sts=2 sw=2

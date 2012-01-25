@@ -1,5 +1,7 @@
 This is a mirror of http://www.vim.org/scripts/script.php?script_id=2905
 
+NEW: Windows users can use this download form now: http://mawercer.de/~marc/vam/index.php to get plugins.
+
 Note:
 There is also  http://packages.debian.org/sid/vim-addon-manager
 which servers a similar purpose but is Debian specific.
@@ -10,41 +12,12 @@ usage example:
 set runtimepath+=~/path-to/vim-plugin-manager
 call scriptmanager#Activate(["vim-haxe","The_NERD_tree","vim-latex"])
 
-On startup you'll be asked for confirmation that vim may install the plugin for you.
-
-How to quickly install a plugin and see whether it does what you want?
-:ActivateAddons <c-d>vim-latex
-:UninstallNotLoadedAddons vim-latex
-
-This script should be kept as simple as possible.
-
-It's main task is to fetch Vim plugins putting each into its own directory.
-Those directories are added to runtimepath for you.
-A plugin can depend on other Vim plugins. Those dependencies are fetched as well.
-
-Scripts are updated by running git pull, svn up etc. Updating .tar.gz based plugins hosted on www.vim.org is supported.
-
-I recommend installing this plugin using
-git clone git://github.com/MarcWeber/vim-addon-manager.git
-(project page): http://github.com/MarcWeber/vim-addon-manager
-
-So that it's easier for you keeping it up to date.
-
-Note: I wrote this plugin to make your and my life easier.
-Help my improving it by sending feedback!
+On startup you'll have to confirm installing plugins.
+For reviewing plugins before usage try :InstallAddon command which downloads only
 
 Note: I setup a cron job which updates the 
 vim-plugin-manager-known-repositories every couple of days.
 
-Nowadays there are different script management tools. See doc/* file.
-However vim-addon-manager has
-- a maintained list of packages (vim-addon-manager-known-repositories)
-- allows you to reuse code by specifying dependencies.
-- is VimL only
-- is easiest to use (install plugins by names)
-- its you choosing between stable or dev version ( I personally recommend dev versions because I do not always upload the latest script versions)
-The doc/* file contains links to all alternatives I know.
-
-I have to thank various people helping me debugging and improving various aspects. See doc/*
+Detailed description can be found in the doc directory of this distribution.
 
 TROUBLE ? Contact me or create a ticket (github page).
