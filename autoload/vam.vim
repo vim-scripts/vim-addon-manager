@@ -6,7 +6,7 @@
 
 " don't need a plugin. If you want to use this plugin you call Activate once
 " anyway
-augroup VIM_ADDON_MANAGER
+augroup VAM_addon_info_handlers
   autocmd!
   autocmd BufRead,BufNewFile *-addon-info.txt,addon-info.json
     \ setlocal ft=addon-info
@@ -39,19 +39,19 @@ let s:d = expand('<sfile>:h:h:h')
 let s:c['plugin_root_dir'] = get(s:c, 'plugin_root_dir', filewritable(s:d) ? s:d : '~/.vim/vim-addons' )
 unlet s:d
 
+if s:c['plugin_root_dir'] == expand('$HOME')
+  echoe "VAM: Don't install VAM into ~/.vim the normal way. See docs -> SetupVAM function. Put it int ~/.vim/vim-addons/vim-addon-manager for example."
+  finish
+endif
+
 " ensure we have absolute paths (windows doesn't like ~/.. ) :
 let s:c['plugin_root_dir'] = expand(s:c['plugin_root_dir'])
 let s:c['dont_source'] = get(s:c, 'dont_source', 0)
 let s:c['plugin_dir_by_name'] = get(s:c, 'plugin_dir_by_name', 'vam#DefaultPluginDirFromName')
+let s:c['addon_completion_lhs'] = get(s:c, 'addon_completion_lhs', '<C-x><C-p>')
 
 " More options that are used for plugins’ installation are listed in 
 " autoload/vam/install.vim
-
-" for testing it is necessary to avoid the "Press enter to continue lines"
-" (cygwin?). Thus provide an option making all shell commands silent
-" However don't set this to 1 by default. If something goes wrong I want users
-" to see what went wrong. Not everybody knows how to debug VimL!
-let s:c['silent_shell_commands'] = get(s:c,'silent_shell_commands', 0)
 
 if g:is_win
   " if binary-utils path exists then add it to PATH
@@ -148,7 +148,7 @@ endf
 "   trusted repositories only
 " }
 fun! vam#ActivateRecursively(list_of_names, ...)
-  let opts = a:0 == 0 ? {} : a:1
+  let opts = extend({'run_install_hooks': 1}, a:0 == 0 ? {} : a:1)
 
   for name in a:list_of_names
     if !has_key(s:c['activated_plugins'],  name)
@@ -243,42 +243,68 @@ fun! vam#ActivateAddons(...) abort
     endif
     unlet rtp
 
-    if !has('vim_starting')
-      for rtp in new_runtime_paths
-        call vam#GlobThenSource(rtp.'/plugin/**/*.vim')
-        call vam#GlobThenSource(rtp.'/after/plugin/**/*.vim')
-      endfor
-    endif
-
     for rtp in new_runtime_paths
       " filetype off/on would do the same ?
       call vam#GlobThenSource(rtp.'/ftdetect/*.vim')
     endfor
 
+    " using force is very likely to cause the plugin to be sourced twice
+    " I hope the plugins don't mind
+    if !has('vim_starting') || get(opts, 'force_loading_plugins_now', 0)
+      for rtp in new_runtime_paths
+        call vam#GlobThenSource(rtp.'/plugin/**/*.vim')
+        call vam#GlobThenSource(rtp.'/after/plugin/**/*.vim')
+      endfor
+
+      if !empty(new_runtime_paths)
+        " The purpose of this line is to "refresh" buffer local vars and syntax.
+        " (eg when loading a python plugin when opening a .py file)
+        " Maybe its the responsibility of plugins to "refresh" settings of
+        " buffers which are already open - I don't expect them to do so.
+        " Let's see how much this breaks.
+        call map(filter(range(1, bufnr('$')),
+              \         'bufexists(v:val)'),
+              \  'setbufvar(v:val, "&filetype", getbufvar(v:val, "&filetype"))')
+      endif
+
+    endif
+
   endif
 endfun
 
 fun! vam#DisplayAddonInfo(name)
-  let plugin = get(g:vim_addon_manager['plugin_sources'], a:name, {})
+  let repository = get(g:vim_addon_manager['plugin_sources'], a:name, {})
   let name = a:name
-  if empty(plugin) && a:name =~ '^\d\+$'
+  if empty(repository) && a:name =~ '^\d\+$'
     " try to find by script id
     let dict = filter(copy(g:vim_addon_manager['plugin_sources']), 'get(v:val,"vim_script_nr","")."" == '.string(1*a:name))
     if (empty(dict))
-      throw "unkown script ".a:name
+      throw "unknown script ".a:name
     else
-      let plugin = get(values(dict), 0, {})
+      let repository = get(values(dict), 0, {})
       let name = keys(dict)[0]
     endif
   end
-  if empty(plugin)
+  if empty(repository)
     echo "Invalid plugin name: " . a:name
     return
   endif
-  echo '========================'
-  echo 'VAM name: '.name
-  for key in keys(plugin)
-    echo key . ': ' . plugin[key]
+  call vam#Log(repeat('=', &columns-1), 'Comment')
+  call vam#Log('Plugin: '.name.((has_key(repository, 'version'))?(' version '.repository.version):('')), 'None')
+  if has_key(repository, 'vim_script_nr')
+    call vam#Log('Script number: '.repository.vim_script_nr, 'None')
+    call vam#Log('Vim.org page: http://www.vim.org/scripts/script.php?script_id='.repository.vim_script_nr, 'None')
+  endif
+  if has_key(repository, 'homepage')
+    call vam#Log('Home page: '.repository.homepage)
+  elseif repository.url =~? '^\w\+://github\.com/'
+    call vam#Log('Home page: https://github.com/'.substitute(repository.url, '^\V\w\+://github.com/\v([^/]+\/[^/]{-}%(\.git)?)%(\/|$)@=.*', '\1', ''), 'None')
+  elseif repository.url =~? '^\w\+://bitbucket\.org/'
+    call vam#Log('Home page: https://bitbucket.org/'.substitute(repository.url, '^\V\w\+://bitbucket.org/\v([^/]+\/[^/]+).*', '\1', ''), 'None')
+  endif
+  call vam#Log('Source URL: '.repository.url.' (type '.get(repository, 'type', 'archive').')', 'None')
+  for key in filter(keys(repository), 'v:val!~#''\vurl|vim_script_nr|version|type|homepage''')
+    call vam#Log(key.': '.string(repository[key]), 'None')
   endfor
 endfun
 
@@ -362,16 +388,20 @@ command! -nargs=* -complete=customlist,vam#install#UpdateCompletion UpdateAddons
 command! -nargs=0 UpdateActivatedAddons exec 'UpdateAddons '.join(keys(g:vim_addon_manager['activated_plugins']),' ')
 command! -nargs=* -complete=customlist,vam#install#UninstallCompletion UninstallNotLoadedAddons :call vam#install#UninstallAddons([<f-args>])
 
+function! s:RunInstallHooks(plugins)
+  for name in a:plugins
+    call vam#install#RunHook('post-install', vam#AddonInfo(name), vam#install#GetRepo(name, {}), vam#PluginDirFromName(name), {})
+  endfor
+endfunction
+command! -nargs=+ -complete=customlist,vam#install#InstalledAddonCompletion RunInstallHooks :call s:RunInstallHooks([<f-args>])
+
 
 " plugin name completion function:
-augroup VAM
-  " yes, this overwrites omnifunc set by vim-dev plugin for instance. I don't
-  " care. You install plugins, then you usually restart anyway.
-  autocmd BufRead,BufNewFile *.vim,*vimrc inoremap <buffer> <C-x><c-p> <c-o>:setlocal omnifunc=vam#install#CompleteAddonName<cr><c-x><c-o>
-augroup end
-
-" plugin completion:
-
-
+if !empty(s:c.addon_completion_lhs)
+  augroup VAM_addon_name_completion
+    autocmd!
+    execute 'autocmd FileType vim inoremap <buffer> <expr> '.s:c.addon_completion_lhs.' vam#utils#CompleteWith("vam#install#CompleteAddonName")'
+  augroup END
+endif
 
 " vim: et ts=8 sts=2 sw=2

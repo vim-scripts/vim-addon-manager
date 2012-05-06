@@ -1,8 +1,24 @@
 " vam#DefineAndBind('s:c','g:vim_addon_manager','{}')
 if !exists('g:vim_addon_manager') | let g:vim_addon_manager = {} | endif | let s:c = g:vim_addon_manager
 
+" Defaulting to 7z why or why not?
+let s:c.omit_7z=get(s:c, 'omit_7z', 0)
+
 " let users override curl command. Reuse netrw setting
-let s:curl = exists('g:netrw_http_cmd') ? g:netrw_http_cmd : 'curl -o'
+" Let's hope that nobody is using a dir called "curl " .. because
+" substitution will be wrong then
+let s:http_cmd = exists('g:netrw_http_cmd') ?
+      \             substitute(g:netrw_http_cmd, '\c\vcurl(\.exe)?%(\ |$)', 'curl\1 --location --max-redirs 40 ', '') :
+      \          executable('curl') ?
+      \             'curl -L --max-redirs 40 -o' :
+      \          executable('wget') ?
+      \             'wget -O'
+      \          :
+      \             0
+
+" for testing it is necessary to avoid the "Press enter to continue lines".
+" Thus provide an option making all shell commands use “system”
+let s:c['shell_commands_run_method'] = get(s:c, 'shell_commands_run_method', 'bang')
 
 " insert arguments at placeholders $ shell escaping the value
 " usage: s:shellescape("rm --arg $ -fr $p $p $p", [string, file1, file2, file3])
@@ -11,11 +27,11 @@ let s:curl = exists('g:netrw_http_cmd') ? g:netrw_http_cmd : 'curl -o'
 " \ on Windows. This only happens by the $p substitution
 " if $ is followed by a number its treated as index
 
-" EXamples:
-" vam#utils#ShellDSL('$', 'escape this/\') == '''escape this/\''' 
-" vam#utils#ShellDSL('$1 $[2p] $1p', 'escape this/\',\'other\') =='''escape this/'' ''other'' ''escape this/''' 
-" vam#utils#ShellDSL('$.url $[1p.url] $1p.url', {'url':'URL'} ) =='''URL'' ''URL'' ''URL''' 
-fun! vam#utils#ShellDSL(cmd, ...) abort
+" Examples:
+" s:ShellDSL('$', 'escape this/\') == '''escape this/\'''
+" s:ShellDSL('$1 $[2p] $1p', 'escape this/\',\'other\') =='''escape this/'' ''other'' ''escape this/'''
+" s:ShellDSL('$.url $[1p.url] $1p.url', {'url':'URL'} ) =='''URL'' ''URL'' ''URL'''
+fun! s:ShellDSL(special, cmd, ...) abort
   let args = a:000
   let r = ''
   let l = split(a:cmd, '\V$', 1)
@@ -23,9 +39,9 @@ fun! vam#utils#ShellDSL(cmd, ...) abort
   let i = 0
   for x in l[1:]
     let list = matchlist(x, '\[\?\(\d*\)\(p\)\?\(\.[^ \t\]]*\)\?\]\?')
-    if len(list) ==0
+    if empty(list)
       " should not happen
-      throw 'vam#utils#ShellDSL, bad : '.x
+      throw 's:ShellDSL, bad : '.x
     endif
     if list[1] != ''
       let p= args[list[1]-1]
@@ -41,66 +57,103 @@ fun! vam#utils#ShellDSL(cmd, ...) abort
     if list[2] == 'p'
       let p = expand(fnameescape(p))
     endif
-    let r .= shellescape(p,1).x[len(list[0]):]
+    let r .= shellescape(p, a:special).x[len(list[0]):]
     unlet p
   endfor
   return r
 endf
 
 fun! s:Cmd(expect_code_0, cmd) abort
-  call vam#Log(a:cmd, "None")
-  exe (s:c.silent_shell_commands ?  "silent " : "").'!'. a:cmd
+  call vam#Log(a:cmd, 'PreProc')
+  if s:c.shell_commands_run_method[-4:] is# 'bang'
+    execute '!'.a:cmd
+  elseif s:c.shell_commands_run_method is# 'system'
+    call vam#Log(system(a:cmd), 'None')
+  else
+    throw 'Unknown run method: '.s:c.shell_commands_run_method
+  endif
   if a:expect_code_0 && v:shell_error != 0
     let s:c.last_shell_command = a:cmd
-    throw "error executing ". a:cmd
+    throw "Command “".a:cmd."” exited with error code ".v:shell_error
   endif
   return v:shell_error
 endf
 
 " TODO improve this and move somewhere else?
 fun! vam#utils#RunShell(...) abort
-  let cmd = call('vam#utils#ShellDSL', a:000)
-  return s:Cmd(0,cmd)
+  let special=(s:c.shell_commands_run_method[-4:] is# 'bang')
+  let cmd = call('s:ShellDSL', [special]+a:000)
+  return s:Cmd(0, cmd)
 endf
 
-" cmds = list of {'d':  dir to run command in, 'c': the command line to be run }
-fun! vam#utils#ExecInDir(cmds) abort
+fun! vam#utils#ExecInDir(dir, ...) abort
+  let special=(s:c.shell_commands_run_method[-4:] is# 'bang')
   if g:is_win
     " set different lcd in extra buffer:
     new
     try
-      let lcd=""
-      for c in a:cmds
-        if has_key(c, "d")
-          exec "lcd ".fnameescape(c.d)
-        endif
-        if has_key(c, "c")
-          call s:Cmd(c.c)
-        endif
-      endfor
+      execute 'lcd' fnameescape(a:dir)
+      let cmd=call('s:ShellDSL', [special]+a:000)
+      call s:Cmd(1, cmd)
     finally
       bw!
     endtry
   else
-    " execute command sequences on linux
-    let cmds_str = []
-    for c in a:cmds
-      if has_key(c, "d")
-        call add(cmds_str, "cd ".shellescape(c.d, 1))
-      endif
-      if has_key(c, "c")
-        call add(cmds_str, c.c)
-      endif
-    endfor
-    call s:Cmd(1, join(cmds_str," && "))
+    let cmd=s:ShellDSL(special, 'cd $p', a:dir).' && '.
+          \ call('s:ShellDSL', [special]+a:000)
+    call s:Cmd(1, cmd)
   endif
 endf
-let s:exec_in_dir=function('vam#utils#ExecInDir')
+
+fun! vam#utils#System(...)
+  let cmd=call('s:ShellDSL', [0]+a:000)
+  let r=system(cmd)
+  if v:shell_error
+    return 0
+  endif
+  return r
+endfun
 
 "Usages: EndsWith('name.tar',   '.tar', '.txt') returns 1 even if .tar was .txt
 fun! s:EndsWith(name, ...)
   return  a:name =~? '\%('.substitute(join(a:000,'\|'),'\.','\\.','g').'\)$'
 endf
+
+" Warning: Currently hooks should not depend on order of their execution
+let s:post_unpack_hooks={}
+fun s:post_unpack_hooks.fix_layout(opts, targetDir, fixDir)
+  " if there are *.vim files but no */**/*.vim files they layout is likely to
+  " be broken. Try fixing it
+  let rtpvimfiles=glob(a:targetDir.'/*.vim')
+  if  !empty(rtpvimfiles) && empty(glob(a:targetDir.'/*/**/*.vim'))
+    " also see [fix-layout]
+
+    " fixing .vim file locations was missed above. So fix it now
+    " example plugin requiring this: sketch
+    if (!isdirectory(a:fixDir))
+      call mkdir(a:fixDir, 'p')
+    endif
+    for f in map(split(rtpvimfiles, "\n"), 'fnamemodify(v:val, ":t")')
+      call rename(a:targetDir.'/'.f, a:fixDir.'/'.f)
+    endfor
+  endif
+endfun
+fun s:post_unpack_hooks.change_to_unix_ff(opts, targetDir, fixDir)
+  if get(a:opts, 'unix_ff', 0)
+    for f in filter(vam#utils#Glob(a:targetDir.'/**/*.vim'), 'filewritable(v:val)==1')
+      call writefile(map(readfile(f, 'b'),
+                  \'((v:val[-1:] is# "\r")?(v:val[:-2]):(v:val))'), f, 'b')
+    endfor
+  endif
+endfun
+
+fun! s:StripIfNeeded(opts, targetDir)
+  let strip_components = get(a:opts, 'strip-components', -1)
+
+  if strip_components!=0
+    call vam#utils#StripComponents(a:targetDir, strip_components, [a:targetDir.'/archive'])
+  endif
+endfun
 
 " may throw EXCEPTION_UNPACK.*
 " most packages are shipped in a directory. Eg ADDON/plugin/*
@@ -115,48 +168,48 @@ endf
 " !! If you change this run the test, please: call vim_addon_manager_tests#Tests('.')
 fun! vam#utils#Unpack(archive, targetDir, ...)
   let opts = a:0 > 0 ? a:1 : {}
-  let strip_components = get(opts, 'strip-components', -1)
   let delSource = get(opts, 'del-source', 0)
-
-  let esc_archive = vam#utils#ShellDSL('$', a:archive)
-  let tgt = [{'d': a:targetDir}]
-
-  if strip_components > 0 || strip_components == -1
-    " when stripping don' strip which was there before unpacking
-    let keep = vam#utils#Glob(a:targetDir.'/*')
-    let strip = 'call vam#utils#StripComponents(a:targetDir, strip_components, keep)'
-  else
-    let strip = ''
-  endif
 
   " [ ending, chars to strip, chars to add, command to do the unpacking ]
   let gzbzip2 = {
-        \ '.gz':   [-4, '','gzip -d'],
-        \ '.tgz':   [-3,'ar','gzip -d'],
-        \ '.bz2':   [-5, '', 'bzip2 -d'],
-        \ '.tbz2':  [-4,'ar','bzip2 -d'],
+        \ '.xz':    [-4,   '', 'xz -d '  ],
+        \ '.txz':   [-3, 'ar', 'xz -d '  ],
+        \ '.gz':    [-4,   '', 'gzip -d' ],
+        \ '.tgz':   [-3, 'ar', 'gzip -d' ],
+        \ '.bz2':   [-5,   '', 'bzip2 -d'],
+        \ '.tbz2':  [-4, 'ar', 'bzip2 -d'],
+        \ '.tbz':   [-3, 'ar', 'bzip2 -d'],
         \ }
+
+
+  let fixDir = a:targetDir.'/plugin'
+  let type = get(opts, 'script-type', 'plugin')
+  if type  =~# '\v^%(%(after\/)?syntax|indent|ftplugin)$'
+    let fixDir = a:targetDir.'/'.type
+  elseif type is 'color scheme'
+    let fixDir = a:targetDir.'/colors'
+  endif
+
+  " 7z renames .tbz, .tbz2, .tar.bz2 to .tar, but it preserves names stored by 
+  " gzip (if any): if you do
+  "   tar -cf ../abc.tar . && gzip ../abc.tar && mv ../abc.tar.gz ../def.tar.gz
+  " you will find that “7z x ../def.tar.gz” unpacks archive “abc.tar” because 
+  " gzip stored its name.
+  let use_7z=(!s:c.omit_7z && executable('7z'))
 
   " .vim file and type syntax?
   if a:archive =~? '\.vim$'
     " hook for plugin / syntax files: Move into the correct direcotry:
-    let dir = a:targetDir.'/plugin'
-    let type = opts['script-type']
-    if type  =~# '\v^%(%(after\/)?syntax|indent|ftplugin)$'
-      let dir = a:targetDir.'/'.type
-    elseif type is 'color scheme'
-      let dir = a:targetDir.'/colors'
+    if (!isdirectory(fixDir))
+      call mkdir(fixDir, 'p')
     endif
-    if (!isdirectory(dir))
-      call mkdir(dir, 'p')
-    endif
-    call writefile(readfile(a:archive,'b'), dir.'/'.fnamemodify(a:archive, ':t'), 'b')
+    " also see [fix-layout]
+    call writefile(readfile(a:archive,'b'), fixDir.'/'.fnamemodify(a:archive, ':t'), 'b')
 
-  " .gz .bzip2 (or .vba.* or .tar.*)
+  " .gz, .xz, .bz2 (or .vba.* or .tar.*)
   elseif call(function('s:EndsWith'), [a:archive] + keys(gzbzip2) )
     " I was told tar on Windows is buggy and can't handle xj or xz correctly
     " so unpack in two phases:
-
     for [k,z] in items(gzbzip2)
       if s:EndsWith(a:archive, k)
         " without ext
@@ -165,10 +218,8 @@ fun! vam#utils#Unpack(archive, targetDir, ...)
         let renameTo = unpacked.z[1]
 
         " PHASE (1): gunzip or bunzip using gzip,bzip2 or 7z:
-        if executable('7z') && !exists('g:prefer_tar')
-          " defaulting to 7z why or why not?
+        if use_7z
           call vam#utils#RunShell('7z x -o$ $', fnamemodify(a:archive, ':h'), a:archive)
-          " 7z renames tgz to tar
         else
           " make a backup. gunzip etc rm the original file
           if !delSource
@@ -184,44 +235,41 @@ fun! vam#utils#Unpack(archive, targetDir, ...)
         endif
 
         if !filereadable(renameTo)
-          " windows tar does not rename .tgz to .tar ?
+          " Windows gzip does not rename .tgz to .tar ?
           call rename(unpacked, renameTo)
         endif
 
         " PHASE (2): now unpack .tar or .vba file and tidy up temp file:
-        call vam#utils#Unpack(renameTo, a:targetDir, { 'strip-components': strip_components, 'del-source': 1 })
+        call vam#utils#Unpack(renameTo, a:targetDir, extend({'del-source': 1}, opts))
         call delete(renameTo)
         break
       endif
       unlet k z
     endfor
 
-    " execute in target dir:
-
-    " .tar
+  " .tar
   elseif s:EndsWith(a:archive, '.tar')
-    if executable('7z')
+    if use_7z
       call vam#utils#RunShell('7z x -o$ $', a:targetDir, a:archive)
     else
-      call s:exec_in_dir(tgt + [{'c': 'tar -xf '.esc_archive }])
+      call vam#utils#ExecInDir(a:targetDir, 'tar -xf $', a:archive)
     endif
-    exec strip
+    call s:StripIfNeeded(opts, a:targetDir)
 
-    " .zip
+  " .zip
   elseif s:EndsWith(a:archive, '.zip')
-    if executable('7z')
+    if use_7z
       call vam#utils#RunShell('7z x -o$ $', a:targetDir, a:archive)
     else
-      call s:exec_in_dir(tgt + [{'c': 'unzip '.esc_archive }])
+      call vam#utils#ExecInDir(a:targetDir, 'unzip $', a:archive)
     endif
-    exec strip
+    call s:StripIfNeeded(opts, a:targetDir)
 
-    " .7z, .cab, .rar, .arj, .jar
-    " (I have actually seen only .7z and .rar, but 7z supports other formats 
-    " too)
+  " .7z, .cab, .rar, .arj, .jar
+  " (I have actually seen only .7z and .rar, but 7z supports other formats too)
   elseif s:EndsWith(a:archive,  '.7z','.cab','.arj','.rar','.jar')
     call vam#utils#RunShell('7z x -o$ $', a:targetDir, a:archive)
-    exec strip
+    call s:StripIfNeeded(opts, a:targetDir)
 
   elseif s:EndsWith(a:archive, '.vba','.vmb')
     " .vba reuse vimball#Vimball() function
@@ -233,20 +281,14 @@ fun! vam#utils#Unpack(archive, targetDir, ...)
     throw "EXCEPTION_UNPACK: don't know how to unpack ". a:archive
   endif
 
-  if delSource && !filereadable(a:archive)
+  if delSource && filereadable(a:archive)
     call delete(a:archive)
   endif
 
-  " Do not use `has("unix")' here: it may be useful on `win32unix' (cygwin) and 
-  " `macunix' (someone should ask users of these vims about that)
-  if get(opts, 'unix_ff', 0)
-    for f in filter(vam#utils#Glob(a:targetDir.'/**/*.vim'), 'filewritable(v:val)==1')
-      call writefile(map(readfile(f, 'b'),
-                  \'((v:val[-1:]==#"\r")?(v:val[:-2]):(v:val))'), f, 'b')
-    endfor
-  endif
-  " Using :sp will fire unneeded autocommands
-
+  let hargs=[opts, a:targetDir, fixDir]
+  for key in keys(s:post_unpack_hooks)
+    call call(s:post_unpack_hooks[key], hargs, {})
+  endfor
 endf
 
 " Usage: Glob($HOME.'/*')
@@ -314,13 +356,11 @@ fun! vam#utils#CopyFile(a,b)
 endf
 
 fun! vam#utils#Download(url, targetFile)
+  if s:http_cmd is 0
+    throw "Neither curl nor wget was found. Either set g:netrw_http_cmd or put one of them in PATH"
+  endif
   " allow redirection because of sourceforge mirrors:
-
-  let s:curl = exists('g:netrw_http_cmd') ? g:netrw_http_cmd : 'curl -o'
-  " Let's hope that nobody is using a dir called "curl " .. because
-  " substitution will be wrong then
-  let c = substitute(s:curl, '\ccurl\(\.exe\)\?\%( \|$\)','curl\1 --location --max-redirs 40 ','')
-  call vam#utils#RunShell(c.' $p $', a:targetFile, a:url)
+  call vam#utils#RunShell(s:http_cmd.' $p $', a:targetFile, a:url)
 endf
 
 fun! vam#utils#RmFR(dir_or_file)
@@ -341,8 +381,8 @@ fun! vam#utils#RmFR(dir_or_file)
   else
     let cmd = "rm -fr"
   endif
-  if cmd == ""
-    throw "don't know how to RmFR on this system: ".g:os
+  if empty(cmd)
+    throw "Don't know how to recursively remove directory on ".g:os." system"
   else
     call vam#utils#RunShell(cmd.' $', a:dir_or_file)
   endif
@@ -395,5 +435,37 @@ endf
 fun! vam#utils#TypoFix(name)
    return substitute(tolower(a:name), '[_/\-]*', '', 'g')
 endf
+
+
+"{{{1 Completion
+" sample usage:
+" inoremap <buffer> <expr> \start_completion vam#utils#CompleteWith("vam#install#CompleteAddonName")'
+let s:savedomnifuncs={}
+fun! vam#utils#CompleteWith(fun)
+  if &l:omnifunc isnot# a:fun
+    let s:savedomnifuncs[bufnr('%')]=&l:omnifunc
+    call s:SetRestoringOmnifuncAutocommands()
+    let &l:omnifunc=a:fun
+  endif
+  return "\<C-x>\<C-o>"
+endfun
+
+" Restore &omnifunc when different events are launched
+fun! s:SetRestoringOmnifuncAutocommands()
+  let buf=bufnr('%')
+  let restoreofcode='if has_key(s:savedomnifuncs, '.buf.') | '.
+        \               'let &l:omnifunc=remove(s:savedomnifuncs, '.buf.') | '.
+        \           'endif'
+  let restoreofifnotpumvisible='if !pumvisible() | '.restoreofcode.' | endif'
+  augroup VAM_restore_completion
+    if exists('##InsertCharPre')
+      execute 'autocmd! InsertCharPre <buffer> '.restoreofifnotpumvisible
+    else
+      execute 'autocmd! CursorHoldI   <buffer> '.restoreofifnotpumvisible
+    endif
+    execute 'autocmd! InsertLeave <buffer> '.restoreofcode
+  augroup END
+endfun
+"}}}1
 
 " vim: et ts=8 sts=2 sw=2

@@ -1,15 +1,14 @@
-*vim-addon-manager.txt* Declarative package manager for Vim
+*vim-addon-manager-additional-documentation.txt* Declarative package manager for Vim
 ==============================================================================
-CONTENTS                                                        *VAM-contents*
+CONTENTS                                       *VAM-contents-additional*
 
-    0. GETTING STARTED & LOOKING FOR HELP <<
-
+In |vim-addon-manager-getting-started.txt|:
     1. Intro                                  |VAM-intro|
-    2 Installation & installing plugins       |VAM-installation|
-        2.2 names of addons and addon soucres |VAM-addon-names|
-        2.3 Example: personal                 |VAM-complex-setup-sample|
-            configurable setup
-        2.4 unattended installation
+    2. Installation & installing plugins      |VAM-installation|
+        2.2 Names of addons and addon soucres |VAM-addon-names|
+        2.3 Example: configurable setup       |VAM-complex-setup-sample|
+        2.4 unattended installation           |VAM-unattended-installation|
+Here:
     3. Functionality provided                 |VAM-functionality|
         3.1. Commands                         |VAM-commands|
         3.2. Functions                        |VAM-functions|
@@ -20,266 +19,11 @@ CONTENTS                                                        *VAM-contents*
     9. Testing this plugin                    |VAM-testing|
    10. Some notes for windows users           |VAM-windows|
    11. Some notes for Gentoo users            |VAM-gentoo|
-   12. Troubleshooting and known bug          |VAM-trouble-shooting|
-       and TODOs as well as "I want .."
-   13. VAM vs ...
-
-   20. making plugins work with VAM
-        (rtp different from ~/.vim)
-
-==============================================================================
-
-0. GETTING STARTED & LOOKING FOR HELP - something doesn't work
-
-Getting started fast: ~
-Read: |VAM-installation| and |VAM-addon-names|
-
-
-NEED HELP: ~
-Join irc.freenode.net, /join #vim. Ask there. VAM has many users
-MarcWeber is hanging around often so ping him or create a github ticket [1] and
-people will try to help you. You should skim the docs before asking for
-help though. Also see |VAM-author|
-[1] https://github.com/MarcWeber/vim-addon-manager/issues
-
-==============================================================================
-1. Intro                                                           *VAM-intro*
-
-VAM is a shortcut for vim-addon-manager.
-Difference addon/plugin: None.
->
- :h plugin
-tells you about the old manual manual way of installing plugins. VAM helps 
-keeping ~/.vim clean by separating plugins from each other.
-
-Features:
-
-    - Separate directories for each plugins
-    - Dependency resolution
-    - Popular VCS support: plugin supports fetching from Git, Mercurial,
-      Subversion and Bazaar repositories
-
-Dependencies:
-    - Curl, wget or other program that can output URL contents to stdout (in
-      order to get http protocol support)
-    - Git, Mercurial, Subversion and Bazaar (if you want to install plugins
-      from appropriate repositories)
-    - Either tar, gzip and zip or 7-zip (required for unpacking some addons)
-
-What does "Declarative package manager" mean? The final behaviour of Vim
-should be declared once. Your ~/.vimrc and |:UpdateAddons| should be enough
-to cause same Vim behaviour everywhere.
-
-
-==============================================================================
-2. Installation                                             *VAM-installation*
-
-Windows users: see |VAM-windows|.
-Gentoo users: see |VAM-gentoo|.
-linux/cygwin/OSX (anything support /bin/sh like shells) users:
-
-The recommended setup is shown below. It installs VAM if it is not on your disk
-using a short shell script.
-
-Then it adds its PATH to Vim's |runtimepath|. If you don't like vam_install_path
-default setting change it.
-
-You make VAM install plugins by adding their names to the list in
- |vam#ActivateAddons()|. Try understanding the comments. They'll help you get
-started fast.
-
-Add the following to your .vimrc >
-
-        fun SetupVAM()
-          " YES, you can customize this vam_install_path path and everything still works!
-          let vam_install_path = expand('$HOME') . '/.vim/vim-addons'
-          exec 'set runtimepath+='.vam_install_path.'/vim-addon-manager'
-
-          " * unix based os users may want to use this code checking out VAM
-          " * windows users want to use http://mawercer.de/~marc/vam/index.php
-          "   to fetch VAM, VAM-known-repositories and the listed plugins
-          "   without having to install curl, unzip, git tool chain first
-          " -> BUG [4] (git-less installation)
-          if !filereadable(vam_install_path.'/vim-addon-manager/.git/config') && 1 == confirm("git clone VAM into ".vam_install_path."?","&Y\n&N")
-            " I'm sorry having to add this reminder. Eventually it'll pay off.
-            call confirm("Remind yourself that most plugins ship with documentation (README*, doc/*.txt). Its your first source of knowledge. If you can't find the info you're looking for in reasonable time ask maintainers to improve documentation")
-            exec '!p='.shellescape(vam_install_path).'; mkdir -p "$p" && cd "$p" && git clone --depth 1 git://github.com/MarcWeber/vim-addon-manager.git'
-            " VAM run helptags automatically if you install or update plugins
-            exec 'helptags '.fnameescape(vam_install_path.'/vim-addon-manager/doc')
-          endif
-
-          " Example drop git sources unless git is in PATH. Same plugins can
-          " be installed form www.vim.org. Lookup MergeSources to get more control
-          " let g:vim_addon_manager['drop_git_sources'] = !executable('git')
-
-          call vam#ActivateAddons([], {'auto_install' : 0})
-          " sample: call vam#ActivateAddons(['pluginA','pluginB', ...], {'auto_install' : 0})
-          "  - look up source from pool (<c-x><c-p> complete plugin names):
-          "    ActivateAddons(["foo",  ..
-          "  - name rewritings: 
-          "    ..ActivateAddons(["github:foo", .. => github://foo/vim-addon-foo
-          "    ..ActivateAddons(["github:user/repo", .. => github://user/repo
-          " Also see section "2.2. names of addons and addon sources" in VAM's documentation
-        endfun
-        call SetupVAM()
-        " experimental: run after gui has been started (gvim) [3]
-        " option1:  au VimEnter * call SetupVAM()
-        " option2:  au GUIEnter * call SetupVAM()
-        " See BUGS sections below [*]
-        " Vim 7.0 users see BUGS section [3]
-
-
-minimal setup ~
->
-  set rtp+=PATH-TO-VAM
-  call vam#ActivateAddons([], {'auto_install' : 0})
-
-
-NOTES: ~
-
-   Depending on the option you choose to run ActivateAddons Vim may not be
-   able to show the questions correctly asking you to install a plugin.
-   If that's the case (for whatever reason) I recommend installing the plugin
-   using |:InstallAddon| or |:ActivateAddon| before adding it to the list in .vimrc
-
-   If you're annoyed by the message: >
-   "Press enter to continue"
-<  There are at least two solutions you can try:
-
-  - press q once and Vim should stop asking
-  - set auto_install = 1 (to make Vim stop asking you any questions. However you
-    won't know if knew dependencies are fetched in that case etc)
-
-------------------------------------------------------------------------------
-2.2 names of addons and addon sources                        *VAM-addon-names*
-
-Because we are human VAM uses readable names as unique identifier for plugins.
-Those identifieres (= plugin names) are passed to |vam#ActivateAddons()|, |:InstallAddons|,
-|:ActivateAddons| . THe name is automatically derived from plugin titles at
-www.vim.org.
-
-types of names:
-  1) plugin name (which is looked up in pool. Try :AddonInfo NAME) >
-  "NAME"
-<
-  determining addon names ~
-  - by id: |:AddonsInfo| SCRIPT_ID, pick the "VAM name" value.
-  - use |:InstallAddons|'s name completion by typing some chars then pressing
-    <c-d> then <tab>.
-  - use <c-x> <c-p> completion (yes, this overwrites 'omnifunc' setting)
-
-  2) name which gets rewritten internally >
-    github:{Name}      =>  {"type": "git", "url": "git://github.com/{Name}/vim-addon-{Name}}
-    github:{N}/{Repo}  =>  {"type": "git", "url": "git://github.com/{N}/{Repo}"}
-<  Don't use if you expect others to create plugins depending on yours. Add
-   your plugin to |VAM-kr| instead.
-
-  See |vam#install#RewriteName()|
-
-Instead of telling us to add your plugin to |VAM-kr| you can also patch the
-pool easily: |VAM-kr-patching| - however if you contribute to |VAM-kr| the
-community will benefit much more.
-
-  long descritpion (how to modify the pool - how does the pool look like - !little bit outdated! ~
-
-Read code in |VAM-kr|. The text below gives you an idea:
-
-Open the vim-addon-manager-known-repositories/plugin/vim-addon-manager-known-repositories.vim (-> |VAM-kr|
-There you'll find the two types of dictionaries which are used to find and
-install plugins. You'll find lines like this:
->
-  let s:plugin_sources['Align294'] = {'title': 'Align', 'version': '35/41', 'url': 'http://www.vim.org/scripts/download_script.php?src_id=10110', 'vim_version': '7.0', 'date': '2009-03-04', 'vim_script_nr': 294, 'type': 'archive', 'script-type': 'utility', 'archive_name': 'Align.vba.gz', 'author': 'Charles Campbell'}
-  let s:plugin_sources['Align1497'] = {'title': 'Align.vim', 'version': '0.15', 'url': 'http://www.vim.org/scripts/download_script.php?src_id=5451', 'vim_version': '6.0', 'date': '2006-03-17', 'vim_script_nr': 1497, 'type': 'archive', 'script-type': 'utility', 'archive_name': 'Align.vim', 'author': 'Michael Gnezdov'}
-<
-In this example both titles are stripped to "Align" which would result in a
-name collision. Thus the gather script appends the script ids.
-The script id can be found in the plugin web url.
-
-There is a second type of dict containing bleeding edge versions:
->
-  let s:scm_plugin_sources['tmru'] = {'type': 'git', 'url': 'git://github.com/tomtom/tmru_vim.git' }
-<
-The keys (eg tmru, Align294, Align1497) must be used instead of {name}.
->
-  :ActivateAddons Align<c-d>[<tab>]
-< showes a list of all names containing "Align" which is often enough to
-identify the plugin you're looking for.
-
-
-*VAM-kr* : The default pool. Its checkout out by |vim-addon-manager| by
-default. its long name is *vim-addon-manager-known-repositories* .
-
-*VAM-kr-patching*
-Both dicts are merged. The default is to prefer the scm version but you can
-choose. (-> MergeSources). You can either overwrite the merge function or just
-predefine the dictionary and add your own sources for testing before
-submitting to |VAM-kr|:
-
-You can add your own sources to the pool easily (BUG/TODO [5]): >
-  let g:vim_addon_manager = {}
-  let g:vim_addon_manager.plugin_sources = {}
-  let g:vim_addon_manager.plugin_sources['your_plugin_name'] = { plugin dictionary }
-<
-
-Or overwrite the MergeSources function: >
-
-    fun! vam_known_repositories#MergeSources(plugin_sources, www_vim_org, scm_plugin_sources, patch_function, snr_to_name)
-
-      " run default:
-      call vam_known_repositories#MergeSources(a:plugin_sources, a:www_vim_org, a:scm_plugin_sources, a:patch_function, a:snr_to_name)
-
-      " patch sources the way you like. This example adds username and password
-      " for SVN repositories. As alternative you could overwrite git urls etc ..
-      for your_plugin in ['svn-driven-key1', ...]
-        let a:plugin_sources[your_plugin]['username'] = 'svn user'
-        let a:plugin_sources[your_plugin]['password'] = 'svn user'
-       endfor
-
-      let a:plugin_sources['your_plugin_name'] = { plugin dictionary }
-    endf
-    " tell VAM to use your MergeSources function:
-    let g:vim_addon_manager = {}
-    let g:vim_addon_manager['MergeSources'] = function('MyMergeSources')
-<
-
-
-------------------------------------------------------------------------------
-2.3 Example: personal configurable setup *VAM-complex-setup-sample*
->
-  call vam#ActivateAddons(["github:YOURNAME"],{'auto_install' : 0})
-  " this initializes Vim the way *you* want also loading more plugins:
-  call vim_addon_YOURNAME#Activate(['c-dev','ruby-dev'])
-<
-  My implementation looks like this:
-  https://github.com/MarcWeber/vim-addon-MarcWeber/blob/master/autoload/vim_addon_MarcWeber.vim
-
-  You can then load plugins depending on env vars:
-  Example: >
-  call vim_addon_YOURNAME#Activate(['always']+split($V,','))
-< Then you can run vim like this from shell >
-  V=c-dev,ruby-dev vim
-<
-  This section was written to inspire you only.
-
-------------------------------------------------------------------------------
-2.4 unattended installation
-
-Note: You should always review foreign code before running it. That said this
-is how you can update or install unattended (without confirmations ..):
-
-    redir! > /tmp/log-vim.txt
-    silent! ACTION
-    messages
-
-where ACTION is either UpdateActivatedAddons or vam#InstallAddons()
-
-This works for http://mawercer.de/~marc/vam/index.php.
-
-There is also the undocumented g:vim_addon_manager['dont_source'] option
-adding additionally json syntax checks on addon-info.json files which are
-evaled by Vim which should be used if you want to checkout eventually
-untrusted code! If you're going to use the plugins anyway its of no use.
-You also want to set auto_install.
+   12. Troubleshooting and known bugs         |VAM-trouble-shooting|
+   13. TODO notes                             |VAM-TODO|
+   14. VAM vs ...                             |VAM-comparison|
+   15. Tracking down errors                   |VAM-tracking-down-erros|
+   16. Making plugins work with VAM           |VAM-adjusting-plugins|
 
 ==============================================================================
 3. Functionality provided                                  *VAM-functionality*
@@ -291,7 +35,13 @@ InstallAddons {name} ...                                      *:InstallAddons*
         Install addons with given names. See |vam#install#InstallAddons()| for
         more details.
         You use InstallAddons instead of ActivateAddons if you want to review
-        plugin source before running it.
+        plugin source before running it. Also see |:RunInstallHooks|, it may 
+        be required to complete installation.
+
+RunInstallHooks {name} ...                                  *:RunInstallHooks*
+        Run post-install hooks for given plugins. Required if plugin has been 
+        installed using |:InstallAddons| and has hooks that are needed for it 
+        to work.
 
 ActivateAddons {name} ...                                    *:ActivateAddons*
         Activate addons with given names. See |vam#ActivateAddons()| for
@@ -410,14 +160,42 @@ vam#install#RewriteName({name})                    *vam#install#RewriteName()*
     github:{N}/{Repo}  {"type": "git",
                         "url": "git://github.com/{N}/{Repo}"}
     git:{URL}          {"type": "git", "url": {URL}} (experimental)
+    hg:{URL}           {"type": "hg", "url": {URL}} (experimental)
+
+vam#install#CompleteAddonName                *vam#install#CompleteAddonName()*
+    Function suitable to be a completion function for omni completion 
+    ('omnifunc'). Completes addon names. See also |VAM-addon_completion_lhs|.
+
+vcs_checkouts#GitCheckout                   *vcs_checkouts#GitCheckout*
+vcs_checkouts#MercurialCheckout             *vcs_checkouts#MercurialCheckout*
+vcs_checkouts#SubversionCheckout            *vcs_checkouts#SubversionCheckout*
+    Functions that do their best to checkout plugins, trying various 
+    additional methods:
+              SCM    Additional methods tried ~
+              git    Mercurial with hg-git, bazaar with bzr-git, 
+                     github/bitbucket bundles
+              hg     Bitbucket bundles
+              svn    Mercurial with hgsubversion, bazaar with bzr-svn
+    To use them add the following to the vimrc: >
+        let g:vim_addon_manager={'scms': {'git': {}, 'svn': {}, 'hg': {}}}
+        let g:vim_addon_manager.scms.git.clone=['vcs_checkouts#GitCheckout']
+        let g:vim_addon_manager.scms.hg.clone =['vcs_checkouts#MercurialCheckout']
+        let g:vim_addon_manager.scms.svn.clone=['vcs_checkouts#SubversionCheckout']
 
 ==============================================================================
 4. Options                                                       *VAM-options*
                                                          *g:vim_addon_manager*
 
-All options are located in the global dictionary g:vim_addon_manager. It also
-contains some stuff that user should never modify if he wants to see this
-plugin working. Possible keys:
+All options are located in the global dictionary g:vim_addon_manager. You can
+set them this way: >
+  let g:vim_addon_manager = {}
+  let g:vim_addon_manager['auto_install'] = 1
+  let g:vim_addon_manager['do_diff'] = 0
+  " ...
+< where KEY_NAME is one of auto_install, plugin_sources, ... (see below)
+
+It also contains some stuff that user should never modify if he wants to see
+this plugin working. Possible keys:
 
 auto_install                                                *VAM-auto_install*
         This options disables plugin installation confirmation. It will not
@@ -475,11 +253,73 @@ plugin_dir_by_name                                    *VAM-plugin_dir_by_name*
         Note: If not all plugins are contained in the same direcotry
               completion for |:UninstallAddons| breaks because simple globbing
               is used.
+scms                                                                *VAM-scms*
+        This option determines how sources with supported SCM's should be
+        checked out and updated. It is a dictionary where keys are known SCM's
+        and values are dictionaries with the following keys:
+            Key         Value ~
+            clone       Determines how sources should be checked out.
+                        Additional arguments: repository url, target
+                                              directory.
+            update      Determines how sources that are already checked out
+                        should be updated.
+                        Additional argument: updated directory.
+            wdrev       Determines how current revision should be obtained. 
+                        Used to distinguish between cases “update has not 
+                        updated anything” and “update successfully pulled and 
+                        checked out new revision(s)”.
+                        Additional argument: updated directory.
+        Values of keys `clone' and `executable' should be lists that look like
+        if you want to call them with call("call", {value}), but with
+        additional arguments added to the second element of the list. You may 
+        omit second argument, in this case it will considered to be empty.
+        Example: >
+            function GitCheckout(url, target)
+                execute 'silent! !git clone' a:url shellescape(a:target, 1)
+            endfunction
+            function GitUpdate(command, directory) dict
+                execute 'sil! !cd' shellescape(a:directory, 1) '&&' a:command
+            endfunction
+            let g:vim_addon_manager.scms={'git': {
+                   \'clone': ['GitCheckout', []],
+                   \'update': [function("GitUpdate"), ['git pull']],\
+                   \'executable': $HOME.'/bin/git'}}
+            " “'clone': ['GitCheckout']” works as well
+<       Note: if some keys are missing, then VAM will use the defaults. So it 
+              is safe to override just one “clone” key as it is shown in 
+              |vcs_checkouts#GitCheckout| example.
 pool_fun                                                        *VAM-pool_fun*
         Name or reference of a function that must return dictionary contains 
         {{plugin-name}: {repository}} ({repository} is described under 
         |addon-info-repository|) map.
         Default is "vam#install#Pool".
+addon_completion_lhs                                *VAM-addon_completion_lhs*
+        {lhs} of the mapping that uses |vam#install#CompleteAddonName()| for 
+        completion. Default: "<C-x><C-p>". Spaces and bars are escaped.
+
+shell_commands_run_method                      *VAM-shell_commands_run_method*
+        String, possible values: “bang”, “system”. Determines method used to 
+        run shell commands: “bang” (default) uses “:execute '!'.cmd”,
+        “system” uses “sysem(cmd)”, output is echoed. Second avoids hit-enter 
+        prompts, but is unable to run commands with newline (see 
+        |system()|).
+
+                                                                   *VAM-hooks*
+post_install_hook_functions               *VAM-post_install_hook_functions*
+pre_update_hook_functions                 *VAM-pre_update_hook_functions*
+post_update_hook_functions                *VAM-post_update_hook_functions*
+post_scm_update_hook_functions            *VAM-post_scm_update_hook_functions*
+        Lists of function names or function references that will be called 
+        when hook is executed (see |addon-info-hooks|). All functions get four 
+        arguments: addon info dictionary, repository dictionary, plugin 
+        directory location and hook options dictionary.
+        Default values:
+            post_install_hook_functions: absent
+            pre_update_hook_functions: ["vam#install#CreatePatch"]
+            post_update_hook_functions: ["vam#install#ApplyPatch"]
+        Note: update hooks values are required for |VAM-do_diff| to work, 
+              vam#install#CreatePatch must be the last function and 
+              vam#install#ApplyPatch should be the first.
 
 The following options are used by vim-addon-manager-known-repositories, not by
 VAM itself. So if you set |vim-addon-manager-known| to another value they may
@@ -551,22 +391,7 @@ repository                                             *addon-info-repository*
         |vam#install#Install()| call (see its description). This is
         a dictionary with the following keys:
 
-         !! Note: As very common in extreme programming documentation may be
-         !! outdated. So may be this section. So refer to the code:
-         !! |vam#install#Checkout()| to find out about all supported keys
-         !! Its easy to read and extend. Contact me if you're unsure. I'll help
-         !! you.
-         !! I'd even consider moving this section into the code only refering
-         |! to it - so that its kept in sync.
-
         Key      Description ~
-        addon-info
-                 optional, contains dict which will be written to
-                 addon-info.json for this plugin if the plugin does not ship
-                 its own addon-info.json file. This way dependencies, that a
-                 subdirectory contains vim data and similar "fixes" can be
-                 applied easily. See samples in VAM-kr.
-
         type     Required, must be either one of `hg', `git', `svn', `bzr' or
                  an empty string.
         url      If `type' key contains a VCS name (`hg', `git', `bzr' or `svn'),
@@ -637,7 +462,35 @@ repository                                             *addon-info-repository*
                 colors, compiler, indent, keymap, lang, print, spell, syntax.
         addon-info
                 Contains addon information in case plugin does not supply its 
-                own addon-info file.
+                own addon-info file. Will be written to addo-info.json file.
+        vim_script_nr
+                Contains www.vim.org script ID.
+        homepage
+                Contains home page URL. Though it is possible to use it, VAM 
+                currently is also able to use repository.url to determine 
+                plugin home page (github and bitbucket sources only). May be 
+                the only source of home page URL in the future.
+
+                                                            *addon-info-hooks*
+post-install-hook                           *addon-info-post-install-hook*
+post-update-hook                            *addon-info-post-update-hook*
+post-scms-update-hook                       *addon-info-post-scms-update-hook*
+pre-update-hook                             *addon-info-pre-update-hook*
+        Contains VimL command (string), that is |:execute|d after some 
+        replacements are done: “%d” gets replaced with |expression| evaluating 
+        to plugin root directory, “%i” – to addon-info dictionary and “%r” – 
+        to repository dictionary, “%o” – to opts dictionary (used to save 
+        information between “pre-” and “post-” hooks).
+        Hooks are executed in the following cases:
+            Hook              Case ~
+            post-install      After successfully installing a plugin using 
+                              |:ActivateAddons| or running |:RunInstallHooks|.
+            pre-update        Before a non-VCS source update.
+            post-update       After a non-VCS source update.
+            post-scms-update  After VCS source update.
+        In non-scms *-update hooks opts dictionary also contains oldVersion 
+        value. In post-scms-update hook repository and opts dictionaries are 
+        empty.
 
 dependencies                                         *addon-info-dependencies*
         Describes plugins that are required for the plugin, must contain
@@ -678,6 +531,10 @@ another list: http://vim-scripts.org/tools.html
 Emacs install scripts manager:
   el-get http://github.com/dimitri/el-get/blob/master/el-get.el
 
+janus collection also seems to have kind of dependency management.
+I tried contacting them - no reply.
+See https://groups.google.com/group/janus-vimius/browse_thread/thread/78db65eebd9cc5d8?hl=de
+
 There is another project which has the same name:
 http://packages.debian.org/sid/vim-addon-manager
 The author (Jamessan) is fine with this project sharing the same name.
@@ -714,6 +571,10 @@ Mike Smullin:
 
 Israel Chauca Fuentes:
  - reporting and fixing some bugs
+
+Zach Kelling (zeekay twitter/github):
+  providing an initial almost working attempt to load plugins lazily based on
+  filetype
 
 (+) means they are collaborators on github and could take action in case of serious
     trouble.
@@ -860,8 +721,11 @@ If you want something like this to happen contact me.
 ==============================================================================
 11. Some notes for Gentoo users                                   *VAM-gentoo*
 
-Gentoo users may consider installing this plugin from pluginloader overlay
-which is accessible via mercurial, url:
+ZyX packaged vim-addon-manager for gentoo. Eventually you still prefer using
+SetupVAM because it works on any unix like system - and its files are that
+small so its debatable whether its worth sharing.
+
+The overlay is accessible via mercurial, url:
 http://vimpluginloader.hg.sourceforge.net:8000/hgroot/vimpluginloader/pluginloader-overlay
 
 In order to use this overlay paludis users can add the pluginloader.conf file
@@ -920,7 +784,7 @@ what's going to happen.
 ==============================================================================
 12. Troubleshooting and known bugs                      *VAM-trouble-shooting*
 
-  Think about how to integrate ideas found in ipi http://www.vim.org/scripts/script.php?script_id=3809
+  [BUG 10] Think about how to integrate ideas found in ipi http://www.vim.org/scripts/script.php?script_id=3809
 
   Runtimepath manipulation should be separated from installation / update
   logic. This way you can have different implementation for updating plugins
@@ -1005,7 +869,8 @@ what's going to happen.
   For windows users there is: http://mawercer.de/~marc/vam/index.php
   which will also work on sytems not having git but an unzip implementation.
 
-TODOs:
+==============================================================================
+13. TODO notes                                                      *VAM-TODO*
 - support vim-scripts.org. This will let you get all www.vim.org scripts using
   git repositories only. I think the general idea is great. However we have to
   take care to keep patches which were written for git/hg in sync.
@@ -1093,51 +958,70 @@ Its not a bug. You can get remaining versions by git fetch --depth=9999999
 or such. This speeds up installation very much and should be still be
 sufficient to prepare patches.
 
-
 ==============================================================================
-13. VAM vs ...
+14. VAM vs ...                                               *VAM-comparison*
 
 
 - ftdetect files are loaded if you set "filetype on".
   Thus if you do it after calling pathogen/vundle/.. everything should be
   fine. (Thanks to graywh for telling me)
 
+------------------------------------------------------------------------------
+14.1. VAM vs pathogen                                        *VAM-vs-pathogen*
 
-vs Pathogen 
--------------
++ |:helptags| is run automatically only after updating or installing the 
+  plugin.
++ There is a maintained pool of plugins that makes possible to
+    1. create hooks which may be required to finish installation (like 
+       Command-T requiring some compilation)
+    2. patch (mainly tell VAM that plugin has different runtimepath) or 
+       deprecate plugins (for example, Sanders snipmate)
++ VAM handles plugin dependencies (of course, if author or pool maintainer 
+  added required information).
++ VAM is able to download and install or update plugins.
++ VAM is able to load plugins while vim is running.
 
-  1) helptags is run automatically always when updating or installing plugins
-    only
+------------------------------------------------------------------------------
+14.2. VAM vs vundle                                            *VAM-vs-vundle*
 
-  2) Because there is a maintained pool of plugins you can patch or
-    deprecate them:
-    This happened to Sanders snipmate.
-    Most patches just add "root" key telling VAM to add a subdir to rtp.
++ Vundles seems to source after/* files for you, but it does not care about 
+  ordering when adding to rtp, thus “~/.vim/after/ftplugin/*” is sources 
+  before “~/.vim/bundle/PLUGIN/ftplugin”. It is though unlikely that you run 
+  into this issue.
++ Does not handle dependencies (though it is in TODO).
 
-  3) simple dependency management
+------------------------------------------------------------------------------
+14.3. VAM vs GetLatestVimScripts                                 *VAM-vs-GLVS*
 
-  4) supports all common VCS (svn, bazaar, git, mercurial)
++ VAM uses human-readable names instead of script IDs.
++ GLVS is able to handle only www.vim.org sources.
++ GLVS puts all files into “~/.vim”, VAM (and others mentioned above) uses 
+  one-directory-for-one-plugin approach.
++ GLVS does not seem to track which files belong to which plugin so is not 
+  able to uninstall plugins.
+- Unlike VAM GLVS is included in standart vim distribution.
+- GLVS was released (posted to www.vim.org) in Nov 2004, while VAM only in 
+  Dec 2009, so it is likely that more plugins define dependencies using GLVS 
+  (needs more exploration though). On the other hand, VAM has large maintained 
+  database also with dependency information.
 
-  5) Automatic downloading of scripts from vim.org.
+------------------------------------------------------------------------------
+14.4. Some other similar projects                               *VAM-vs-other*
 
-  7) You can easily load plugins at runtime.
+There are other projects known which are not so popular as the above:
+1. janus (https://github.com/carlhuda/janus)
+    + Has plugin managment system built on top of pathogen
+    ? Janus is a vim distribution, not only package manager
+2. vimpyre (https://github.com/pct/vimpyre)
+    + Requires python and some python packages
+    + Uses pathogen to actually load plugins, it does only installation itself
+    + Supports only git
+    ? Not a vim plugin, but a python extension. Is installed using pip.
+    - Is able to do some local searches
+    - Vimpyre can open plugin home page in browser
 
-vs vundle
----------
-
-    Vundle seems to source after/* files for you (since March 2011)
-
-    BUT: It doesn't take care about ordering when adding to rtp.
-    Thus ~/.vim/after/ftplugin/* is sourced before
-    ~/.vim/bundle/PLUGIN/ftplugin but should be the other way round.
-
-    However its unlikely that you run into this issue (I know about one case).
-
-
-vs X
----------
-  TODO: Most people are using VAM or Pathogen now AFAIK - so if you feel need
-  for this list submit patches
+Most people are using VAM or Pathogen now AFAIK - so if you feel need for this 
+list submit patches
 
 I personally don't have anything against the other solutions. I like to point
 out the importance of the "dependency" feature. It allows reusing code easily.
@@ -1145,8 +1029,56 @@ Thus code will be reused easily. Thus code review will take place yielding
 more collaboration thus better code. That was the main reason why I started
 VAM. And that's good for community.
 
+
 ==============================================================================
-20. making plugins work with VAM (rtp different from ~/.vim)
+15. Tracking down errors                              *VAM-tracking-down-errors*
+
+1) Where does the error or unexpected behaviour come from?
+  Try disabling plugins until you know which plugins are left causing the bad
+  behaviour. Then you can try checking out older versions.
+  Pathogen is using "git submodules" which would allow setting back many
+  repositories in time at once. Because VAM does not use git submodules you
+  have to checkout older versions for each plugin manually.
+
+GIT (git): ~
+
+  - optional: fetch all history (VAM by default uses shallow clones):
+    git fetch --depth=99999
+
+  - list changes:
+    gitk (gui) or git log -500
+
+  - list all changes in time:
+    git reflog show HEAD@{now} lists lines like this:
+    b8aee58 HEAD@{Wed Feb 15 03:22:53 2012 +0100}: commit: documentation improvements
+    ^^^^^ the hash
+
+  - checkout older revision (thus put plugin back in time to older revision):
+    git checkout hash
+    git checkout master # latest revision (unless you use different branches)
+
+  tip: hash~2 checks out two versions before hash.
+  Thus master~10 checks 10 revisions before the most current one.
+
+  If you know which hash is causing the bad behaviour you may want to have
+  look at changes using.
+  git show hash
+
+  Of course #git on irc.freenode.net is willing to help if you have trouble
+
+MERCURIAL (hg): ~
+  TODO improve this.
+  hg log -l 500 # list last 500 changes of repositories
+  hg update -C hash_or_number
+
+SVN (svn)~
+  svn log -l 500
+  svn up -rREVISION_NUMBER
+
+Eventually you want to sent a bug report to maintainers
+
+==============================================================================
+16. Making plugins work with VAM                       *VAM-adjusting-plugins*
 
 Most plugins should work out of the box.
 
